@@ -345,7 +345,7 @@
   var touchDrive = { active:false, throttle:0, turn:0 };
   var fireHeld = false;
 
-  var player = { x:0, z:0, yaw:0 };
+  var player = { x:0, z:0, yaw:0, turnVel:0, throttleVel:0 };
   var enemies = [];
   var pShots = [];
   var eShots = [];
@@ -645,7 +645,7 @@
   }
 
   /* ════════════════════════ audio ════════════════════════ */
-  var actx = null, engineOsc = null, engineGain = null;
+  var actx = null, engineOsc = null, engineGain = null, engineFilter = null;
   function ensureAudio(){
     if (actx) return;
     try{
@@ -653,9 +653,13 @@
       engineOsc = actx.createOscillator();
       engineOsc.type = 'sawtooth';
       engineOsc.frequency.value = 40;
+      engineFilter = actx.createBiquadFilter();
+      engineFilter.type = 'lowpass';
+      engineFilter.frequency.value = 220;
+      engineFilter.Q.value = 0.3;
       engineGain = actx.createGain();
       engineGain.gain.value = 0;
-      engineOsc.connect(engineGain).connect(actx.destination);
+      engineOsc.connect(engineFilter).connect(engineGain).connect(actx.destination);
       engineOsc.start();
     }catch(e){ actx = null; }
   }
@@ -707,9 +711,10 @@
   }
   function updateEngineHum(throttleMag){
     if (!engineGain) return;
-    var target = G.state === 'playing' ? 0.03 + throttleMag*0.09 : 0;
+    var target = G.state === 'playing' ? 0.012 + throttleMag*0.035 : 0;
     engineGain.gain.value += (target-engineGain.gain.value)*0.1;
-    engineOsc.frequency.value += ((40+throttleMag*70) - engineOsc.frequency.value)*0.08;
+    engineOsc.frequency.value += ((38+throttleMag*55) - engineOsc.frequency.value)*0.08;
+    engineFilter.frequency.value += ((160+throttleMag*180) - engineFilter.frequency.value)*0.08;
   }
 
   /* ════════════════════════ input ════════════════════════ */
@@ -781,6 +786,7 @@
 
   function resetPlayer(){
     player.x = 0; player.z = 0; player.yaw = 0;
+    player.turnVel = 0; player.throttleVel = 0;
     G.invuln = 1.5;
   }
 
@@ -845,18 +851,25 @@
     turnInput = Math.max(-1, Math.min(1, turnInput));
     throttleInput = Math.max(-1, Math.min(1, throttleInput));
 
-    player.yaw += turnInput * PLAYER_TURN_RATE * dt;
-    var spd = throttleInput >= 0 ? PLAYER_SPEED_FWD : PLAYER_SPEED_REV;
+    // ease raw on/off input toward a smoothed velocity so driving ramps
+    // instead of snapping to full turn/speed the instant a key is pressed
+    var turnEase = 1 - Math.pow(0.001, dt / 0.22);
+    var throttleEase = 1 - Math.pow(0.001, dt / 0.32);
+    player.turnVel += (turnInput - player.turnVel) * turnEase;
+    player.throttleVel += (throttleInput - player.throttleVel) * throttleEase;
+
+    player.yaw += player.turnVel * PLAYER_TURN_RATE * dt;
+    var spd = player.throttleVel >= 0 ? PLAYER_SPEED_FWD : PLAYER_SPEED_REV;
     var fwd = forwardOf(player.yaw);
-    player.x += fwd.x * throttleInput * spd * dt;
-    player.z += fwd.z * throttleInput * spd * dt;
+    player.x += fwd.x * player.throttleVel * spd * dt;
+    player.z += fwd.z * player.throttleVel * spd * dt;
     pushOutOfObstacles(player, 1.1);
 
     if (G.invuln > 0) G.invuln = Math.max(0, G.invuln - dt);
 
     if (fireHeld) firePlayerShot();
 
-    updateEngineHum(Math.abs(throttleInput));
+    updateEngineHum(Math.abs(player.throttleVel));
 
     if (!G.hintFaded && (Math.abs(turnInput) > 0.05 || Math.abs(throttleInput) > 0.05)){
       G.hintFaded = true;
@@ -867,7 +880,7 @@
   function updateCamera(dt, time){
     camera.position.x = player.x;
     camera.position.z = player.z;
-    camera.position.y = camBaseY + Math.sin(time*8)*0.02;
+    camera.position.y = camBaseY + Math.sin(time*8)*0.02*Math.abs(player.throttleVel);
     camera.rotation.set(0, player.yaw, 0);
 
     if (shakeMag > 0.001){
