@@ -318,6 +318,22 @@
   var PHOS_DEEP = 0x0a3319;
   var AMBER = 0xffb020;
   var WHITE_HOT = 0xeafff1;
+  var CYAN = 0x3ce0ff;
+  var CYAN_DIM = 0x0d4a5c;
+  var AMBER_DIM = 0x5c3c10;
+  var EMBER = 0xff5a2a;
+  var EMBER_DIM = 0x4a1408;
+
+  var TANK_VARIANTS = [
+    { name:'scout',    color: CYAN, scale: 0.82, speedMul: 1.45, hp: 1, fireMul: 1.2 },
+    { name:'standard', color: PHOS, scale: 1.0,  speedMul: 1.0,  hp: 1, fireMul: 1.0 },
+    { name:'heavy',    color: AMBER,scale: 1.3,  speedMul: 0.68, hp: 2, fireMul: 0.8 }
+  ];
+  function dimColor(hex, factor){
+    var c = new THREE.Color(hex);
+    c.multiplyScalar(factor);
+    return c.getHex();
+  }
 
   var WORLD_R = 170;
   var SPAWN_CLEAR = 26;
@@ -379,10 +395,14 @@
     return new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0, yaw, 0));
   }
 
-  function wireGroup(geometry, edgeColor, fillOcclusion){
+  function wireGroup(geometry, edgeColor, fillOcclusion, fillColor){
     var g = new THREE.Group();
     if (fillOcclusion !== false){
-      var fillMat = new THREE.MeshBasicMaterial({ color: VOID });
+      var fillMat = new THREE.MeshLambertMaterial({
+        color: fillColor !== undefined ? fillColor : dimColor(edgeColor, 0.4),
+        flatShading: true,
+        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
+      });
       var fill = new THREE.Mesh(geometry, fillMat);
       fill.renderOrder = 0;
       g.add(fill);
@@ -396,6 +416,12 @@
   }
 
   /* ════════════════════════ world ════════════════════════ */
+  var hemiLight = new THREE.HemisphereLight(0x0e3a20, 0x02100a, 0.65);
+  scene.add(hemiLight);
+  var sunLight = new THREE.DirectionalLight(0xcfffe0, 0.85);
+  sunLight.position.set(70, 110, 50);
+  scene.add(sunLight);
+
   var grid = new THREE.GridHelper(WORLD_R*2, 68, PHOS_DIM, PHOS_DEEP);
   grid.material.transparent = true;
   grid.material.opacity = 0.85;
@@ -417,7 +443,7 @@
   // volcano silhouette homage, far horizon
   (function volcano(){
     var geo = new THREE.ConeGeometry(46, 66, 5);
-    var v = wireGroup(geo, PHOS_DEEP, true);
+    var v = wireGroup(geo, EMBER, true, EMBER_DIM);
     v.position.set(-90, 33-2, -180);
     scene.add(v);
   })();
@@ -431,18 +457,25 @@
       var rad = SPAWN_CLEAR + Math.random()*(WORLD_R-SPAWN_CLEAR-10);
       var x = Math.cos(ang)*rad, z = Math.sin(ang)*rad;
       var group, r;
-      if (Math.random() < 0.65){
+      var roll = Math.random();
+      if (roll < 0.5){
         var h = 6+Math.random()*7, w = h*0.85;
-        group = wireGroup(new THREE.ConeGeometry(w, h, 4), PHOS_DIM, true);
+        group = wireGroup(new THREE.ConeGeometry(w, h, 4), PHOS_DIM, true, dimColor(PHOS_DIM, 0.55));
         group.position.set(x, h/2, z);
         group.rotation.y = Math.random()*Math.PI;
         r = w*0.8;
-      } else {
+      } else if (roll < 0.8){
         var s = 3.2+Math.random()*2.4;
-        group = wireGroup(new THREE.BoxGeometry(s, s*0.8, s), PHOS_DIM, true);
+        group = wireGroup(new THREE.BoxGeometry(s, s*0.8, s), AMBER_DIM, true, dimColor(AMBER_DIM, 0.6));
         group.position.set(x, s*0.4, z);
         group.rotation.y = Math.random()*Math.PI;
         r = s*0.75;
+      } else {
+        var rr = 2.6+Math.random()*2.0;
+        group = wireGroup(new THREE.IcosahedronGeometry(rr, 0), CYAN_DIM, true, dimColor(CYAN_DIM, 0.6));
+        group.position.set(x, rr*0.7, z);
+        group.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
+        r = rr*0.85;
       }
       scene.add(group);
       obstacles.push({ mesh: group, x:x, z:z, r:r });
@@ -468,31 +501,79 @@
   }
 
   /* ════════════════════════ enemy tanks ════════════════════════ */
-  function makeEnemyMesh(){
+  function makeEnemyMesh(variant){
+    var c = variant.color, cDim = dimColor(c, 0.4);
     var g = new THREE.Group();
-    var hull = wireGroup(new THREE.BoxGeometry(2.1,0.9,3.1), PHOS, true);
-    hull.position.y = 0.55;
-    var turret = wireGroup(new THREE.BoxGeometry(1.1,0.7,1.2), PHOS, true);
-    turret.position.y = 1.25;
-    var barrel = wireGroup(new THREE.CylinderGeometry(0.09,0.11,1.7,6), PHOS, true);
+
+    var hull = wireGroup(new THREE.BoxGeometry(2.1,0.85,3.1), c, true, cDim);
+    hull.position.y = 0.5;
+    g.add(hull);
+
+    // angled glacis plate on the front
+    var glacis = wireGroup(new THREE.BoxGeometry(1.9,0.9,0.7), c, true, cDim);
+    glacis.position.set(0, 0.62, -1.75);
+    glacis.rotation.x = -0.55;
+    g.add(glacis);
+
+    // side track guards
+    [-1.15, 1.15].forEach(function(sx){
+      var skirt = wireGroup(new THREE.BoxGeometry(0.22,0.5,3.3), c, true, cDim);
+      skirt.position.set(sx, 0.28, 0);
+      g.add(skirt);
+    });
+
+    var turret = wireGroup(new THREE.BoxGeometry(1.15,0.62,1.35), c, true, cDim);
+    turret.position.y = 1.18;
+    g.add(turret);
+
+    var hatch = wireGroup(new THREE.CylinderGeometry(0.28,0.34,0.28,6), c, true, cDim);
+    hatch.position.set(0, 1.58, 0.1);
+    g.add(hatch);
+
+    var barrelLen = variant.name === 'heavy' ? 1.35 : 1.9;
+    var barrelR = variant.name === 'heavy' ? 0.16 : 0.09;
+    var barrel = wireGroup(new THREE.CylinderGeometry(barrelR,barrelR*1.15,barrelLen,6), c, true, cDim);
     barrel.rotation.x = Math.PI/2;
-    barrel.position.set(0,1.25,-1.15);
-    g.add(hull, turret, barrel);
+    barrel.position.set(0,1.18,-0.9-barrelLen/2);
+    g.add(barrel);
+
+    if (variant.name === 'scout'){
+      var antenna = wireGroup(new THREE.CylinderGeometry(0.02,0.02,1.1,4), c, true, cDim);
+      antenna.position.set(0.5, 1.85, 0.4);
+      g.add(antenna);
+    }
+    if (variant.name === 'heavy'){
+      [-0.7, 0.7].forEach(function(sx){
+        var block = wireGroup(new THREE.BoxGeometry(0.5,0.35,0.5), c, true, cDim);
+        block.position.set(sx, 1.02, -1.3);
+        g.add(block);
+      });
+    }
+
+    g.scale.setScalar(variant.scale);
     return g;
+  }
+
+  function pickVariant(){
+    var roll = Math.random();
+    if (G.wave >= 3 && roll < 0.2) return TANK_VARIANTS[2];
+    if (roll < 0.45) return TANK_VARIANTS[0];
+    return TANK_VARIANTS[1];
   }
 
   function spawnEnemy(){
     var ang = Math.random()*Math.PI*2;
     var rad = 46 + Math.random()*(WORLD_R-60);
     var x = Math.cos(ang)*rad, z = Math.sin(ang)*rad;
-    var mesh = makeEnemyMesh();
+    var variant = pickVariant();
+    var mesh = makeEnemyMesh(variant);
     mesh.position.set(x, 0, z);
     scene.add(mesh);
-    var speed = 3.2 + Math.random()*1.2 + (G.wave-1)*0.35;
+    var speed = (3.2 + Math.random()*1.2 + (G.wave-1)*0.35) * variant.speedMul;
     enemies.push({
-      mesh: mesh, x:x, z:z, yaw:0, hp:1,
-      speed: Math.min(speed, 7.5),
-      fireCd: 1.5+Math.random()*2,
+      mesh: mesh, x:x, z:z, yaw:0, hp:variant.hp, variant:variant,
+      speed: Math.min(speed, 8.5),
+      fireCd: (1.5+Math.random()*2) / variant.fireMul,
       alive: true
     });
   }
@@ -534,7 +615,7 @@
     var dx = player.x-e.x, dz = player.z-e.z;
     var d = Math.sqrt(dx*dx+dz*dz) || 1;
     var vx = dx/d*ENEMY_SHOT_SPEED, vz = dz/d*ENEMY_SHOT_SPEED;
-    var mesh = makeShotMesh(AMBER, 0.9);
+    var mesh = makeShotMesh(e.variant ? e.variant.color : AMBER, 0.9);
     mesh.position.set(e.x, 1.1, e.z);
     mesh.lookAt(e.x+vx, 1.1, e.z+vz);
     scene.add(mesh);
@@ -630,8 +711,9 @@
       var rel = targetAngle - player.yaw;
       var scaled = Math.min(dist/WORLD_R, 1) * R;
       var bx = -Math.sin(rel)*scaled, by = -Math.cos(rel)*scaled;
-      radarCx.fillStyle = '#3dff7a';
-      radarCx.shadowColor = '#3dff7a'; radarCx.shadowBlur = 4;
+      var blipColor = '#' + new THREE.Color(e.variant ? e.variant.color : PHOS).getHexString();
+      radarCx.fillStyle = blipColor;
+      radarCx.shadowColor = blipColor; radarCx.shadowBlur = 4;
       radarCx.fillRect(bx-2, by-2, 4, 4);
     });
     radarCx.shadowBlur = 0;
@@ -935,14 +1017,20 @@
         if (!e.alive) return;
         var dx = s.x-e.x, dz = s.z-e.z;
         if (Math.sqrt(dx*dx+dz*dz) < HIT_RADIUS_ENEMY){
+          hitSomething = true;
+          e.hp -= 1;
+          if (e.hp > 0){
+            spawnParticles(e.x, 1.1, e.z, WHITE_HOT, 5);
+            playHit();
+            return;
+          }
           e.alive = false;
           scene.remove(e.mesh);
-          spawnParticles(e.x, 1, e.z, PHOS, 16);
+          spawnParticles(e.x, 1, e.z, e.variant ? e.variant.color : PHOS, 16);
           playExplosion();
           addShake(0.35);
           G.score += 150;
           updateHUD();
-          hitSomething = true;
           enemiesRemainingInWave -= 1;
           if (enemiesRemainingInWave <= 0){
             setTimeout(nextWave, 900);
