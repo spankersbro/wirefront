@@ -1042,7 +1042,11 @@
       for (var i=0;i<obstacles.length && !hitSomething;i++){
         var o = obstacles[i];
         var dx2 = s.x-o.x, dz2 = s.z-o.z;
-        if (Math.sqrt(dx2*dx2+dz2*dz2) < o.r*0.6) hitSomething = true;
+        if (Math.sqrt(dx2*dx2+dz2*dz2) < o.r){
+          hitSomething = true;
+          spawnParticles(s.x, 1, s.z, AMBER, 8);
+          playHit();
+        }
       }
 
       var keep = s.life > 0 && !hitSomething;
