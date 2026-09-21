@@ -12,27 +12,17 @@ nothing below is built yet except what's listed under "Shipped."
 - Shared high-score leaderboard via Firestore (`wirefront-49636` GCP/Firebase project),
   append-only security rules, API key restricted to this domain + Firestore/Installations only.
 - Hosted at `wirefront.davidirving.dev` (GitHub Pages + Cloudflare).
-
-## Phase 1 — Live co-op presence (not started)
-
-Goal: when multiple people have the page open, they see each other as allies in the same
-world, in real time.
-
-- Add **Firebase Realtime Database** to the existing `wirefront-49636` project — Firestore
-  is the wrong tool for this (a handful of players broadcasting position ~10x/sec would blow
-  through Firestore's free write quota in minutes; RTDB is built for exactly this and stays
-  free at this scale).
-- One shared global room to start — everyone currently on the page is in the same world, no
-  lobby/matchmaking UI needed for v1.
-- Each client writes its own `{name, x, z, yaw}` to RTDB at ~8–10Hz. Use RTDB's built-in
-  `onDisconnect()` for presence cleanup (no manual heartbeat/timeout logic needed).
-- Random callsign generated client-side on join ("SILENT FALCON" etc.), shown as a
-  billboarded name-tag sprite above each ally tank.
-- Ally tanks render in a distinct ice-blue — must read as unmistakably friendly, not
-  confusable with the cyan scout-enemy color already in use.
-- **Known limitation of this phase, on purpose:** enemy tanks stay per-player/local. You'll
-  see real allies driving around, but your enemies aren't their enemies yet — everyone is
-  still fighting their own independent simulation. That's Phase 2.
+- **Phase 1 — live co-op presence.** Firebase Realtime Database (`wirefront-49636-default-rtdb`,
+  us-central1) added to the same project. One shared global room at `rooms/global/players`;
+  each client writes its own `{name, x, z, yaw, t}` at ~9Hz and relies on `onDisconnect()` for
+  cleanup — verified with two concurrent clients, both entries appeared and both cleared on
+  disconnect. Random two-word callsign generated client-side on join, shown as a billboarded
+  name-tag sprite above each ally tank. Allies render in a distinct pale ice-blue
+  (`0xcfeeff`), unmistakable against the saturated cyan scout-enemy color. Security rules
+  (`database.rules.json`) validate shape and bounds on write, deployed.
+  - **Known limitation, on purpose:** enemy tanks stay per-player/local. You'll see real
+    allies driving around, but your enemies aren't their enemies yet — everyone is still
+    fighting their own independent simulation. That's Phase 2.
 
 ## Phase 2 — Shared, authoritative world (not started, harder problem)
 
@@ -78,8 +68,8 @@ The honest version, and it's a better feature than the literal ask:
 
 ## Open decisions for whoever (David or a future session) picks this back up
 
-- [ ] Confirm Phase 1 scope and go ahead — this is the next buildable step, no new
-      unresolved questions blocking it.
+- [x] Phase 1 shipped 2026-09-21 — RTDB presence, name tags, ice-blue allies, verified with
+      two concurrent clients.
 - [ ] Decide Gemini call frequency and prompt shape before building the proxy — affects cost
       directly.
 - [ ] Decide whether Phase 2 (shared world) ships before or after the Gemini tactical AI —

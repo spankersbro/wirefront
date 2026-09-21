@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "rooms": {
+      "global": {
+        "players": {
+          ".read": true,
+          "$playerId": {
+            ".write": true,
+            ".validate": "newData.hasChildren(['name','x','z','yaw','t'])",
+            "name": { ".validate": "newData.isString() && newData.val().length <= 24" },
+            "x": { ".validate": "newData.isNumber() && newData.val() >= -1000 && newData.val() <= 1000" },
+            "z": { ".validate": "newData.isNumber() && newData.val() >= -1000 && newData.val() <= 1000" },
+            "yaw": { ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 100" },
+            "t": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        }
+      }
+    },
+    ".read": false,
+    ".write": false
+  }
+}

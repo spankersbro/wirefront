@@ -15,6 +15,8 @@ heading-up radar, and a live global leaderboard.
 - WebAudio for engine hum / fire / explosion sound, synthesized — no audio files.
 - Firestore (`firestore.rules` in this repo) for the shared high-score leaderboard —
   append-only, validated document shape, no update/delete allowed.
+- Firebase Realtime Database (`database.rules.json`) for live co-op presence — everyone with
+  the page open shows up as an ally tank, in real time, in one shared global room.
 - Hosted on GitHub Pages, custom domain via `CNAME`.
 
 ## Controls

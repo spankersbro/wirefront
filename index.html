@@ -299,6 +299,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
 (function(){
   "use strict";
@@ -310,7 +311,8 @@
     storageBucket: "wirefront-49636.firebasestorage.app",
     apiKey: "AIzaSyC0KsurLqS3evck7TspwGh96fvOTGtCCDc",
     authDomain: "wirefront-49636.firebaseapp.com",
-    messagingSenderId: "690237862698"
+    messagingSenderId: "690237862698",
+    databaseURL: "https://wirefront-49636-default-rtdb.firebaseio.com"
   };
   var VOID = 0x030d07;
   var PHOS = 0x3dff7a;
@@ -323,6 +325,11 @@
   var AMBER_DIM = 0x5c3c10;
   var EMBER = 0xff5a2a;
   var EMBER_DIM = 0x4a1408;
+  var ICE_BLUE = 0xcfeeff;
+  var ALLY_VARIANT = { name:'ally', color: ICE_BLUE, scale: 1.0 };
+  var PRESENCE_HZ_MS = 110;
+  var CALLSIGN_ADJ = ['SILENT','IRON','GHOST','CRIMSON','ARCTIC','LONE','SWIFT','NIGHT','STEEL','VOID','RAPID','GRIM','SOLAR','ROGUE','QUIET'];
+  var CALLSIGN_NOUN = ['FALCON','WOLF','VIPER','HORNET','RAVEN','COBRA','SPECTRE','TALON','REAPER','FOX','LYNX','HAWK','JACKAL','CONDOR','MANTIS'];
 
   var TANK_VARIANTS = [
     { name:'scout',    color: CYAN, scale: 0.82, speedMul: 1.45, hp: 1, fireMul: 1.2 },
@@ -371,6 +378,12 @@
 
   var topScores = [];
   var db = null, userCap = null;
+
+  var rtdb = null, presenceRef = null;
+  var clientId = 'p_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+  var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
+  var allies = {};
+  var lastPresenceSend = 0;
 
   /* ════════════════════════ three.js setup ════════════════════════ */
   var canvas = document.getElementById('scene');
@@ -551,6 +564,32 @@
     }
 
     g.scale.setScalar(variant.scale);
+    return g;
+  }
+
+  function makeNameTag(text){
+    var cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 64;
+    var cx = cv.getContext('2d');
+    cx.font = "700 30px 'Orbitron', sans-serif";
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    cx.shadowColor = '#' + new THREE.Color(ICE_BLUE).getHexString();
+    cx.shadowBlur = 10;
+    cx.fillStyle = '#eafff1';
+    cx.fillText(text, 128, 32);
+    var tex = new THREE.CanvasTexture(cv);
+    var mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthWrite:false });
+    var sprite = new THREE.Sprite(mat);
+    sprite.scale.set(4.2, 1.05, 1);
+    sprite.position.y = 2.6;
+    return sprite;
+  }
+
+  function makeAllyGroup(name){
+    var g = new THREE.Group();
+    g.add(makeEnemyMesh(ALLY_VARIANT));
+    g.add(makeNameTag(name));
     return g;
   }
 
@@ -1128,6 +1167,73 @@
 
   function saveHot(){ /* no-op: this build persists only via the shared scores collection */ }
 
+  /* ════════════════════════ co-op presence (rtdb) ════════════════════════ */
+  var PLAYERS_PATH = 'rooms/global/players';
+
+  function addAlly(id, data){
+    var group = makeAllyGroup(String(data.name || '???').slice(0,24));
+    scene.add(group);
+    allies[id] = {
+      group: group,
+      x: data.x||0, z: data.z||0, yaw: data.yaw||0,
+      targetX: data.x||0, targetZ: data.z||0, targetYaw: data.yaw||0
+    };
+  }
+
+  function updateAllyTarget(id, data){
+    var a = allies[id];
+    if (!a){ addAlly(id, data); return; }
+    a.targetX = data.x||0; a.targetZ = data.z||0; a.targetYaw = data.yaw||0;
+  }
+
+  function removeAlly(id){
+    var a = allies[id];
+    if (!a) return;
+    scene.remove(a.group);
+    delete allies[id];
+  }
+
+  function subscribeAllies(){
+    var ref = rtdb.ref(PLAYERS_PATH);
+    ref.on('child_added', function(snap){
+      if (snap.key === clientId) return;
+      addAlly(snap.key, snap.val() || {});
+    });
+    ref.on('child_changed', function(snap){
+      if (snap.key === clientId) return;
+      updateAllyTarget(snap.key, snap.val() || {});
+    });
+    ref.on('child_removed', function(snap){
+      removeAlly(snap.key);
+    });
+  }
+
+  function sendPresence(nowMs){
+    if (!presenceRef) return;
+    if (nowMs - lastPresenceSend < PRESENCE_HZ_MS) return;
+    lastPresenceSend = nowMs;
+    presenceRef.set({
+      name: callsign,
+      x: Math.round(player.x*100)/100,
+      z: Math.round(player.z*100)/100,
+      yaw: Math.round(player.yaw*100)/100,
+      t: Date.now()
+    });
+  }
+
+  function updateAllies(dt){
+    var lerpT = 1 - Math.pow(0.001, dt/0.15);
+    for (var id in allies){
+      var a = allies[id];
+      a.x += (a.targetX - a.x) * lerpT;
+      a.z += (a.targetZ - a.z) * lerpT;
+      var diff = ((a.targetYaw - a.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
+      a.yaw += diff * lerpT;
+      a.group.position.set(a.x, 0, a.z);
+      a.group.rotation.y = a.yaw;
+    }
+  }
+
   /* ════════════════════════ main loop ════════════════════════ */
   var clock = new THREE.Clock();
   function animate(){
@@ -1144,6 +1250,8 @@
       updateEngineHum(0);
     }
     updateCamera(dt, time);
+    updateAllies(dt);
+    sendPresence(performance.now());
     drawRadar(dt);
     renderer.render(scene, camera);
   }
@@ -1161,6 +1269,15 @@
     }catch(e){
       db = null;
       renderBoard(document.getElementById('titleBoard'));
+    }
+
+    try{
+      rtdb = firebase.database();
+      presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
+      presenceRef.onDisconnect().remove();
+      subscribeAllies();
+    }catch(e){
+      rtdb = null;
     }
   }
 
