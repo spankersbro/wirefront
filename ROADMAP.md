@@ -23,6 +23,20 @@ nothing below is built yet except what's listed under "Shipped."
   - **Known limitation, on purpose:** enemy tanks stay per-player/local. You'll see real
     allies driving around, but your enemies aren't their enemies yet — everyone is still
     fighting their own independent simulation. That's Phase 2.
+- **Phase 1 polish — join/leave comms, tank collision, line readability.** Shipped
+  2026-09-21.
+  - Join/leave announcements: a small on-screen comms line plus a chime and optional
+    text-to-speech (Web Speech API, feature-detected, prefers a female system voice).
+    Batched over a ~900ms window and audio/TTS capped to once per 4s, so a burst of
+    arrivals reads as one line instead of spamming.
+  - Tank-to-tank collision: the local tank can no longer drive through an ally's tank.
+    Client-local only — each client resolves against the other's last-known position, no
+    server authority — with separation eased in over ~0.15s rather than snapped instantly.
+    The first version snapped in one frame and stranded the camera inside another tank's
+    mesh when two players spawned on the same point (both start at world origin); fixed
+    same day.
+  - Brighter wireframe edges globally (canvas glow filter + line width) — readability
+    fix, no gameplay change.
 
 ## Phase 2 — Shared, authoritative world (not started, harder problem)
 
@@ -70,6 +84,11 @@ The honest version, and it's a better feature than the literal ask:
 
 - [x] Phase 1 shipped 2026-09-21 — RTDB presence, name tags, ice-blue allies, verified with
       two concurrent clients.
+- [x] Phase 1 polish shipped 2026-09-21 — join/leave comms, tank collision, brighter lines.
+- [ ] Load-test join/leave comms batching with more than 2 concurrent clients — the batching
+      and rate-limit math is sound on paper, unverified with a real burst of arrivals.
+- [ ] Decide if comms audio/TTS needs a mute toggle — none exists yet, and it could get old
+      for a player sitting in a room where people cycle in and out.
 - [ ] Decide Gemini call frequency and prompt shape before building the proxy — affects cost
       directly.
 - [ ] Decide whether Phase 2 (shared world) ships before or after the Gemini tactical AI —
