@@ -43,7 +43,7 @@
 
   canvas#scene{
     position:fixed; inset:0; width:100%; height:100%; display:block;
-    filter: drop-shadow(0 0 5px rgba(61,255,122,.55)) contrast(1.12) brightness(1.05);
+    filter: drop-shadow(0 0 1.5px rgba(234,255,241,.9)) drop-shadow(0 0 6px rgba(61,255,122,.65)) contrast(1.2) brightness(1.1);
   }
 
   /* ── CRT dressing ─────────────────────────────────────────── */
@@ -128,6 +128,21 @@
     opacity:0; transition:opacity .35s ease;
   }
   .toast.show{ opacity:1; }
+
+  .comms-feed{
+    position:absolute; top:152px; left:50%; transform:translateX(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:.25rem;
+    pointer-events:none;
+  }
+  .comms-line{
+    font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap;
+    padding:.28rem .7rem; background:var(--panel); border:1px solid var(--phosphor-dim);
+    color:var(--phosphor); text-shadow:0 0 6px rgba(61,255,122,.65);
+    opacity:0; transform:translateY(-4px);
+    transition:opacity .35s ease, transform .35s ease;
+  }
+  .comms-line.show{ opacity:1; transform:translateY(0); }
+  .comms-line.leave{ color:var(--amber); border-color:#5c3c10; text-shadow:0 0 6px rgba(255,176,32,.6); }
 
   .damage-flash{
     position:fixed; inset:0; z-index:6; pointer-events:none;
@@ -246,6 +261,8 @@
 
   <div class="toast" id="toast">WAVE CLEARED</div>
 
+  <div class="comms-feed" id="commsFeed" aria-live="polite"></div>
+
   <div class="hint-bar" id="hintBar">
     <span class="desktop-only">◄►/A D turn &nbsp;·&nbsp; ▲▼/W S throttle &nbsp;·&nbsp; SPACE fire</span>
     <span class="touch-only">LEFT STICK: drive &nbsp;·&nbsp; RIGHT PAD: fire</span>
@@ -328,6 +345,9 @@
   var ICE_BLUE = 0xcfeeff;
   var ALLY_VARIANT = { name:'ally', color: ICE_BLUE, scale: 1.0 };
   var PRESENCE_HZ_MS = 110;
+  var ANNOUNCE_BATCH_MS = 900;
+  var ANNOUNCE_MIN_AUDIO_GAP_MS = 4000;
+  var MAX_COMMS_LINES = 3;
   var CALLSIGN_ADJ = ['SILENT','IRON','GHOST','CRIMSON','ARCTIC','LONE','SWIFT','NIGHT','STEEL','VOID','RAPID','GRIM','SOLAR','ROGUE','QUIET'];
   var CALLSIGN_NOUN = ['FALCON','WOLF','VIPER','HORNET','RAVEN','COBRA','SPECTRE','TALON','REAPER','FOX','LYNX','HAWK','JACKAL','CONDOR','MANTIS'];
 
@@ -352,6 +372,8 @@
   var FIRE_COOLDOWN = 0.26;
   var HIT_RADIUS_ENEMY = 2.4;
   var HIT_RADIUS_OBSTACLE = 1.0;
+  var PLAYER_BODY_R = 1.1;
+  var ALLY_BODY_R = 1.35;
   var reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ════════════════════════ state ════════════════════════ */
@@ -383,7 +405,13 @@
   var clientId = 'p_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
   var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
   var allies = {};
+  var alliesColliding = {};
   var lastPresenceSend = 0;
+  var alliesReady = false;
+  var joinBuffer = [], leaveBuffer = [];
+  var announceFlushTimer = null;
+  var lastAnnounceAudioAt = -Infinity;
+  var speechReady = ('speechSynthesis' in window) && (typeof SpeechSynthesisUtterance !== 'undefined');
 
   /* ════════════════════════ three.js setup ════════════════════════ */
   var canvas = document.getElementById('scene');
@@ -421,7 +449,7 @@
       g.add(fill);
     }
     var edges = new THREE.EdgesGeometry(geometry);
-    var lineMat = new THREE.LineBasicMaterial({ color: edgeColor });
+    var lineMat = new THREE.LineBasicMaterial({ color: edgeColor, linewidth: 2 });
     var lines = new THREE.LineSegments(edges, lineMat);
     lines.renderOrder = 1;
     g.add(lines);
@@ -510,6 +538,28 @@
     var d0 = Math.sqrt(pos.x*pos.x+pos.z*pos.z);
     if (d0 > WORLD_R-3){
       pos.x *= (WORLD_R-3)/d0; pos.z *= (WORLD_R-3)/d0;
+    }
+  }
+
+  // keeps the local tank from driving through another player's tank; only
+  // pushes our own position, since ally positions are network-authoritative
+  function pushOutOfAllies(pos, bodyR){
+    for (var id in allies){
+      var a = allies[id];
+      var dx = pos.x-a.x, dz = pos.z-a.z;
+      var minD = ALLY_BODY_R+bodyR;
+      var d = Math.sqrt(dx*dx+dz*dz);
+      var touching = d < minD;
+      if (touching && d > 0.0001){
+        var push = (minD-d);
+        pos.x += (dx/d)*push;
+        pos.z += (dz/d)*push;
+      }
+      if (touching && !alliesColliding[id]){
+        playTankCollision();
+        addShake(0.25);
+      }
+      alliesColliding[id] = touching;
     }
   }
 
@@ -820,6 +870,19 @@
   }
   function playExplosion(){ noiseBurst(0.5, 2200, 0.22); }
   function playHit(){ noiseBurst(0.35, 900, 0.28); }
+  function playTankCollision(){
+    if (!actx) return;
+    var t = actx.currentTime;
+    var o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(55, t+0.12);
+    g.gain.setValueAtTime(0.16, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.14);
+    o.connect(g).connect(actx.destination);
+    o.start(t); o.stop(t+0.15);
+    noiseBurst(0.08, 3000, 0.1);
+  }
   function playBlip(){
     if (!actx) return;
     var t = actx.currentTime;
@@ -830,6 +893,62 @@
     o.connect(g).connect(actx.destination);
     o.start(t); o.stop(t+0.09);
   }
+  function playCommsJoin(){
+    if (!actx) return;
+    var t = actx.currentTime;
+    var o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(520, t);
+    o.frequency.exponentialRampToValueAtTime(980, t+0.16);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.09, t+0.03);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.22);
+    o.connect(g).connect(actx.destination);
+    o.start(t); o.stop(t+0.24);
+  }
+  function playCommsLeave(){
+    if (!actx) return;
+    var t = actx.currentTime;
+    var o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(680, t);
+    o.frequency.exponentialRampToValueAtTime(300, t+0.2);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.08, t+0.03);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.26);
+    o.connect(g).connect(actx.destination);
+    o.start(t); o.stop(t+0.28);
+  }
+  var announceVoice = null;
+  var FEMALE_VOICE_HINTS = ['female','samantha','victoria','karen','tessa','fiona','moira','veena',
+    'susan','allison','ava','serena','kate','amy','joanna','salli','kimberly','ivy','zira','google us english'];
+  function pickAnnounceVoice(){
+    if (!speechReady) return;
+    var voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return;
+    announceVoice = voices.find(function(v){
+      var n = v.name.toLowerCase();
+      return FEMALE_VOICE_HINTS.some(function(hint){ return n.indexOf(hint) > -1; });
+    }) || null;
+  }
+  if (speechReady){
+    pickAnnounceVoice();
+    window.speechSynthesis.onvoiceschanged = pickAnnounceVoice;
+  }
+
+  function speakAnnouncement(text){
+    if (!speechReady) return;
+    try{
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      if (announceVoice) u.voice = announceVoice;
+      u.rate = 1.05;
+      u.pitch = 1.0;
+      u.volume = 0.7;
+      window.speechSynthesis.speak(u);
+    }catch(e){ speechReady = false; }
+  }
+
   function updateEngineHum(throttleMag){
     if (!engineGain) return;
     var target = G.state === 'playing' ? 0.012 + throttleMag*0.035 : 0;
@@ -984,7 +1103,8 @@
     var fwd = forwardOf(player.yaw);
     player.x += fwd.x * player.throttleVel * spd * dt;
     player.z += fwd.z * player.throttleVel * spd * dt;
-    pushOutOfObstacles(player, 1.1);
+    pushOutOfObstacles(player, PLAYER_BODY_R);
+    pushOutOfAllies(player, PLAYER_BODY_R);
 
     if (G.invuln > 0) G.invuln = Math.max(0, G.invuln - dt);
 
@@ -1171,10 +1291,11 @@
   var PLAYERS_PATH = 'rooms/global/players';
 
   function addAlly(id, data){
-    var group = makeAllyGroup(String(data.name || '???').slice(0,24));
+    var name = String(data.name || '???').slice(0,24) || '???';
+    var group = makeAllyGroup(name);
     scene.add(group);
     allies[id] = {
-      group: group,
+      group: group, name: name,
       x: data.x||0, z: data.z||0, yaw: data.yaw||0,
       targetX: data.x||0, targetZ: data.z||0, targetYaw: data.yaw||0
     };
@@ -1191,21 +1312,81 @@
     if (!a) return;
     scene.remove(a.group);
     delete allies[id];
+    delete alliesColliding[id];
   }
 
   function subscribeAllies(){
     var ref = rtdb.ref(PLAYERS_PATH);
+    // 'child_added' fires once per existing player the instant we subscribe,
+    // then again for every future arrival — the one-time 'value' below tells
+    // us when that initial backlog is done, so only later ones get announced.
     ref.on('child_added', function(snap){
-      if (snap.key === clientId) return;
+      if (snap.key === clientId || allies[snap.key]) return;
       addAlly(snap.key, snap.val() || {});
+      if (alliesReady) queueJoin(allies[snap.key].name);
     });
     ref.on('child_changed', function(snap){
       if (snap.key === clientId) return;
       updateAllyTarget(snap.key, snap.val() || {});
     });
     ref.on('child_removed', function(snap){
+      if (snap.key === clientId || !allies[snap.key]) return;
+      var name = allies[snap.key].name;
       removeAlly(snap.key);
+      if (alliesReady) queueLeave(name);
     });
+    ref.once('value', function(){ alliesReady = true; });
+  }
+
+  /* ── join/leave announcements: batched so a burst of arrivals reads as
+     one line and one sound/voice line, never one per player ── */
+  var commsFeed = document.getElementById('commsFeed');
+
+  function queueJoin(name){ joinBuffer.push(name); scheduleAnnounceFlush(); }
+  function queueLeave(name){ leaveBuffer.push(name); scheduleAnnounceFlush(); }
+
+  function scheduleAnnounceFlush(){
+    if (announceFlushTimer) return;
+    announceFlushTimer = setTimeout(flushAnnouncements, ANNOUNCE_BATCH_MS);
+  }
+
+  function flushAnnouncements(){
+    announceFlushTimer = null;
+    var joins = joinBuffer, leaves = leaveBuffer;
+    joinBuffer = []; leaveBuffer = [];
+    if (joins.length) announceBatch(joins, 'join');
+    if (leaves.length) announceBatch(leaves, 'leave');
+  }
+
+  function announceBatch(names, kind){
+    var isJoin = kind === 'join';
+    var lineText = names.length === 1
+      ? names[0] + ' ' + (isJoin ? 'ON GRID' : 'OFFLINE')
+      : names.length + ' PILOTS ' + (isJoin ? 'ON GRID' : 'OFFLINE');
+    showCommsLine(lineText, kind);
+
+    var now = performance.now();
+    if (now - lastAnnounceAudioAt < ANNOUNCE_MIN_AUDIO_GAP_MS) return;
+    lastAnnounceAudioAt = now;
+    if (isJoin) playCommsJoin(); else playCommsLeave();
+    speakAnnouncement(names.length === 1
+      ? names[0] + (isJoin ? ' has entered the field' : ' has left the field')
+      : names.length + ' pilots have ' + (isJoin ? 'entered the field' : 'left the field'));
+  }
+
+  function showCommsLine(text, kind){
+    var line = document.createElement('div');
+    line.className = 'comms-line' + (kind === 'leave' ? ' leave' : '');
+    line.textContent = text;
+    commsFeed.appendChild(line);
+    requestAnimationFrame(function(){ line.classList.add('show'); });
+    while (commsFeed.children.length > MAX_COMMS_LINES){
+      commsFeed.removeChild(commsFeed.firstChild);
+    }
+    setTimeout(function(){
+      line.classList.remove('show');
+      setTimeout(function(){ if (line.parentNode) line.parentNode.removeChild(line); }, 400);
+    }, 3200);
   }
 
   function sendPresence(nowMs){
