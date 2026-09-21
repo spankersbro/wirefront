@@ -541,19 +541,31 @@
     }
   }
 
+  var ALLY_PUSH_SPEED = 16; // units/sec — caps how fast overlap resolves so the
+                             // camera eases out instead of snapping in one frame
+
   // keeps the local tank from driving through another player's tank; only
   // pushes our own position, since ally positions are network-authoritative
-  function pushOutOfAllies(pos, bodyR){
+  function pushOutOfAllies(pos, bodyR, dt){
     for (var id in allies){
       var a = allies[id];
       var dx = pos.x-a.x, dz = pos.z-a.z;
       var minD = ALLY_BODY_R+bodyR;
       var d = Math.sqrt(dx*dx+dz*dz);
       var touching = d < minD;
-      if (touching && d > 0.0001){
-        var push = (minD-d);
-        pos.x += (dx/d)*push;
-        pos.z += (dz/d)*push;
+      if (touching){
+        var nx, nz;
+        if (d > 0.0001){
+          nx = dx/d; nz = dz/d;
+        } else {
+          // exactly stacked (e.g. both tanks spawned at world origin) — pick
+          // a stable pseudo-random direction so they don't stay glued together
+          var ang = (id.split('').reduce(function(s,c){ return s+c.charCodeAt(0); },0) % 360) * Math.PI/180;
+          nx = Math.cos(ang); nz = Math.sin(ang);
+        }
+        var step = Math.min(minD-d, ALLY_PUSH_SPEED*dt);
+        pos.x += nx*step;
+        pos.z += nz*step;
       }
       if (touching && !alliesColliding[id]){
         playTankCollision();
@@ -1104,7 +1116,7 @@
     player.x += fwd.x * player.throttleVel * spd * dt;
     player.z += fwd.z * player.throttleVel * spd * dt;
     pushOutOfObstacles(player, PLAYER_BODY_R);
-    pushOutOfAllies(player, PLAYER_BODY_R);
+    pushOutOfAllies(player, PLAYER_BODY_R, dt);
 
     if (G.invuln > 0) G.invuln = Math.max(0, G.invuln - dt);
 
