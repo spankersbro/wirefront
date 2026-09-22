@@ -345,6 +345,8 @@
   var ICE_BLUE = 0xcfeeff;
   var ALLY_VARIANT = { name:'ally', color: ICE_BLUE, scale: 1.0 };
   var PRESENCE_HZ_MS = 110;
+  var PRESENCE_TIMEOUT_MS = 15000;
+  var STALE_SWEEP_MS = 3000;
   var ANNOUNCE_BATCH_MS = 900;
   var ANNOUNCE_MIN_AUDIO_GAP_MS = 4000;
   var MAX_COMMS_LINES = 3;
@@ -407,6 +409,7 @@
   var allies = {};
   var alliesColliding = {};
   var lastPresenceSend = 0;
+  var lastStaleSweep = 0;
   var alliesReady = false;
   var joinBuffer = [], leaveBuffer = [];
   var announceFlushTimer = null;
@@ -1309,7 +1312,8 @@
     allies[id] = {
       group: group, name: name,
       x: data.x||0, z: data.z||0, yaw: data.yaw||0,
-      targetX: data.x||0, targetZ: data.z||0, targetYaw: data.yaw||0
+      targetX: data.x||0, targetZ: data.z||0, targetYaw: data.yaw||0,
+      t: data.t || Date.now()
     };
   }
 
@@ -1317,6 +1321,19 @@
     var a = allies[id];
     if (!a){ addAlly(id, data); return; }
     a.targetX = data.x||0; a.targetZ = data.z||0; a.targetYaw = data.yaw||0;
+    a.t = data.t || Date.now();
+  }
+
+  // presence writes are throttled to every PRESENCE_HZ_MS, but a tab can vanish
+  // without onDisconnect firing (crash, force-quit, killed network) and leave a
+  // frozen tank behind. Sweep out any ally whose last update is stale and drop
+  // its rtdb entry so every client converges on the same removal.
+  function sweepStaleAllies(nowMs){
+    if (!rtdb) return;
+    var cutoff = Date.now() - PRESENCE_TIMEOUT_MS;
+    for (var id in allies){
+      if (allies[id].t < cutoff) rtdb.ref(PLAYERS_PATH + '/' + id).remove();
+    }
   }
 
   function removeAlly(id){
@@ -1444,7 +1461,12 @@
     }
     updateCamera(dt, time);
     updateAllies(dt);
-    sendPresence(performance.now());
+    var presenceNow = performance.now();
+    sendPresence(presenceNow);
+    if (presenceNow - lastStaleSweep >= STALE_SWEEP_MS){
+      lastStaleSweep = presenceNow;
+      sweepStaleAllies(presenceNow);
+    }
     drawRadar(dt);
     renderer.render(scene, camera);
   }
