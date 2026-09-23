@@ -82,6 +82,9 @@ The honest version, and it's a better feature than the literal ask:
 
 ## Open decisions for whoever (David or a future session) picks this back up
 
+Since 2026-09-23 these are tracked as issues in David's own tracker (project WF). The list
+below is a snapshot; the tracker is the live copy.
+
 - [x] Phase 1 shipped 2026-09-21 — RTDB presence, name tags, ice-blue allies, verified with
       two concurrent clients.
 - [x] Phase 1 polish shipped 2026-09-21 — join/leave comms, tank collision, brighter lines.
