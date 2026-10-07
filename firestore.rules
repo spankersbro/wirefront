@@ -7,6 +7,7 @@ service cloud.firestore {
         && request.resource.data.initials is string
         && request.resource.data.initials.size() >= 1
         && request.resource.data.initials.size() <= 3
+        && request.resource.data.initials.matches('^[A-Z]{1,3}$')
         && request.resource.data.score is int
         && request.resource.data.score >= 0
         && request.resource.data.score <= 999999
