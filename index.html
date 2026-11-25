@@ -1496,6 +1496,13 @@
     }
   }
 
+  // Read-only state for the Playwright suite (WF-11). Only with ?e2e, so normal players get no global.
+  if (new URLSearchParams(location.search).has('e2e')){
+    window.__wirefrontProbe = function(){
+      return { state: G.state, x: player.x, z: player.z, yaw: player.yaw, playerShots: pShots.length };
+    };
+  }
+
   boot();
 })();
 </script>
