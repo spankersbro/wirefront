@@ -2,6 +2,7 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: 'tests',
+  testMatch: '*.spec.js',
   forbidOnly: !!process.env.CI,
   retries: 0,
   // Room for the three 15s slow-runner polls in tests/game.spec.js, so a stall fails on the poll, not the test timeout.

@@ -38,6 +38,13 @@ nothing below is built yet except what's listed under "Shipped."
   - Brighter wireframe edges globally (canvas glow filter + line width) — readability
     fix, no gameplay change.
 
+- **Tests and CI, 2026-11-25 (WF-11, WF-3).** Playwright e2e tests and GitHub Actions. Tests
+  never touch live Firebase: they block it or serve a fake SDK (`tests/fixtures/`).
+- **Own-entry presence writes, WF-10.** Each client signs in with Firebase Anonymous Auth and
+  writes presence under its uid with a server timestamp. The RTDB rule allows writing only
+  your own entry, and deleting someone else's only once it is 15s stale by server time.
+  Rule tests run on the emulator: `npm run test:rules` (needs Java 21).
+
 ## Phase 2 — Shared, authoritative world (not started, harder problem)
 
 Goal: everyone in the room fights the *same* enemy tanks and sees the *same* wave state —
@@ -76,8 +83,8 @@ The honest version, and it's a better feature than the literal ask:
   the billing account. Calls must go through a small server-side proxy (Cloud Run), same
   pattern already used for OSINT/Crimes. Store the key in Bitwarden per `SECURITY.md`'s
   standing practice, never commit it.
-- Real per-call cost, unlike everything shipped so far (Firestore/RTDB/GitHub Pages are all
-  free at this scale). Needs its own billing budget alert before it goes live, not bundled
+- Real per-call cost, unlike everything shipped so far (Firestore/RTDB/GitHub Pages cost
+  nothing at this scale, although the project has billing enabled). Needs its own billing budget alert before it goes live, not bundled
   into the existing shared OSINT/Crimes alert.
 
 ## Open decisions for whoever (David or a future session) picks this back up
@@ -97,6 +104,5 @@ below is a snapshot; the tracker is the live copy.
 - [ ] Decide whether Phase 2 (shared world) ships before or after the Gemini tactical AI —
       Gemini-driven tanks are far more interesting once everyone's actually fighting the same
       ones.
-- [ ] Add a dedicated billing budget alert for `wirefront-49636` once Gemini calls are live
-      (SECURITY.md flags this project currently has none — fine while it's Firestore-only,
-      not fine once a paid API is in the loop).
+- [x] Budget alert for `wirefront-49636`: "Wirefront spend", €5/month, created 2026-11-25
+      (WF-9). The project has billing enabled; it is not on the free Spark plan.

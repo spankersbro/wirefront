@@ -4,14 +4,16 @@
 // remove() does not echo a child_removed, so the stale sweep is not modelled.
 (function () {
   var listeners = {};
+  var writes = [];
   var noop = function () {};
+  var SERVER_TIMESTAMP = { '.sv': 'timestamp' };
 
-  function ref() {
+  function ref(path) {
     return {
       on: function (event, callback) { (listeners[event] = listeners[event] || []).push(callback); },
       once: function (event, callback) { (listeners['once:' + event] = listeners['once:' + event] || []).push(callback); },
-      set: noop,
-      remove: noop,
+      set: function (value) { writes.push({ path: path, value: value }); return Promise.resolve(); },
+      remove: function () { return window.__fakeRtdb.refuseRemoves ? Promise.reject(new Error('PERMISSION_DENIED')) : Promise.resolve(); },
       onDisconnect: function () { return { remove: noop }; },
     };
   }
@@ -24,13 +26,20 @@
 
   window.__fakeRtdb = {
     emit: emit,
+    writes: writes,
+    uid: 'fake-anon-uid',
     finishInitialLoad: function () { emit('once:value'); },
   };
 
   var query = { orderBy: function () { return query; }, limit: function () { return query; }, onSnapshot: noop };
+  var database = function () { return { ref: ref }; };
+  database.ServerValue = { TIMESTAMP: SERVER_TIMESTAMP };
   window.firebase = {
     initializeApp: noop,
     firestore: function () { return { collection: function () { return query; } }; },
-    database: function () { return { ref: ref }; },
+    database: database,
+    auth: function () {
+      return { signInAnonymously: function () { return Promise.resolve({ user: { uid: window.__fakeRtdb.uid } }); } };
+    },
   };
 })();

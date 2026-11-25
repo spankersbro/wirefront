@@ -317,6 +317,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
 (function(){
   "use strict";
@@ -404,7 +405,8 @@
   var db = null, userCap = null;
 
   var rtdb = null, presenceRef = null;
-  var clientId = 'p_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+  // The anonymous Firebase Auth uid; the RTDB rules only let a player write the entry under it.
+  var clientId = null;
   var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
   var allies = {};
   var alliesColliding = {};
@@ -1332,7 +1334,8 @@
     if (!rtdb) return;
     var cutoff = Date.now() - PRESENCE_TIMEOUT_MS;
     for (var id in allies){
-      if (allies[id].t < cutoff) rtdb.ref(PLAYERS_PATH + '/' + id).remove();
+      // The rules check staleness against server time; with a skewed local clock the delete is refused and another client sweeps it.
+      if (allies[id].t < cutoff) rtdb.ref(PLAYERS_PATH + '/' + id).remove().catch(function(){});
     }
   }
 
@@ -1427,7 +1430,7 @@
       x: Math.round(player.x*100)/100,
       z: Math.round(player.z*100)/100,
       yaw: Math.round(player.yaw*100)/100,
-      t: Date.now()
+      t: firebase.database.ServerValue.TIMESTAMP
     });
   }
 
@@ -1488,12 +1491,19 @@
 
     try{
       rtdb = firebase.database();
-      presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
-      presenceRef.onDisconnect().remove();
-      subscribeAllies();
+      firebase.auth().signInAnonymously().then(joinRoom, function(error){
+        console.warn('Wirefront: anonymous sign-in failed, playing without co-op presence.', error);
+      });
     }catch(e){
       rtdb = null;
     }
+  }
+
+  function joinRoom(credential){
+    clientId = credential.user.uid;
+    presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
+    presenceRef.onDisconnect().remove();
+    subscribeAllies();
   }
 
   // Read-only state for the Playwright suite (WF-11). Only with ?e2e, so normal players get no global.
