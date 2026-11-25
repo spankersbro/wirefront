@@ -1,6 +1,9 @@
 const { test, expect } = require('@playwright/test');
 
-const FIREBASE_HOSTS = /gstatic\.com\/firebasejs|firebaseio\.com|googleapis\.com/;
+const FIREBASE_HOSTS = /gstatic\.com\/firebasejs|firebaseio\.com|firestore\.googleapis\.com|firebaseinstallations\.googleapis\.com/;
+const FIREBASE_SDK_SCRIPTS = ['firebase-app-compat.js', 'firebase-firestore-compat.js', 'firebase-database-compat.js'];
+// The game caps frame time at 50ms, so a slow software-WebGL runner also slows game time. 15s covers ~2fps.
+const SLOW_RUNNER_POLL = { timeout: 15000 };
 
 async function openGame(page) {
   const pageErrors = [];
@@ -36,17 +39,16 @@ test('Engage starts the game, the tank drives and fires', async ({ page }) => {
   await expect.poll(async () => {
     const { x, z } = await probe(page);
     return Math.hypot(x, z);
-  }).toBeGreaterThan(1);
+  }, SLOW_RUNNER_POLL).toBeGreaterThan(1);
   await page.keyboard.up('w');
 
   await page.keyboard.down('a');
-  await expect.poll(async () => Math.abs((await probe(page)).yaw)).toBeGreaterThan(0.2);
+  await expect.poll(async () => Math.abs((await probe(page)).yaw), SLOW_RUNNER_POLL).toBeGreaterThan(0.2);
   await page.keyboard.up('a');
 
   await page.keyboard.down(' ');
-  await expect.poll(async () => (await probe(page)).playerShots).toBeGreaterThan(0);
+  await expect.poll(async () => (await probe(page)).playerShots, SLOW_RUNNER_POLL).toBeGreaterThan(0);
   await page.keyboard.up(' ');
-
   expect(pageErrors).toEqual([]);
 });
 
@@ -59,5 +61,8 @@ test('the e2e probe is absent without the e2e flag', async ({ page }) => {
 
 test('Firebase traffic is blocked, so tests never touch live data', async ({ page }) => {
   const { firebaseRequests } = await openGame(page);
-  expect(firebaseRequests.length).toBeGreaterThan(0);
+  for (const script of FIREBASE_SDK_SCRIPTS) {
+    expect(firebaseRequests.some((url) => url.endsWith(script)), script).toBe(true);
+  }
+  expect(await page.evaluate(() => typeof window.firebase)).toBe('undefined');
 });

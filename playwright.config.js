@@ -8,6 +8,7 @@ module.exports = defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:8123',
     browserName: 'chromium',
+    trace: 'retain-on-failure',
   },
   webServer: {
     command: 'python3 -m http.server 8123 --bind 127.0.0.1',
