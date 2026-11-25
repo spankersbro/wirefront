@@ -14,12 +14,12 @@ async function openWithFakeFirebase(page) {
 
 const presenceWrites = (page) => page.evaluate(() => window.__fakeRtdb.writes);
 
-test('presence is written under uid_<tab> with a server timestamp, and removed on disconnect', async ({ page }) => {
+test('presence is written under the signed-in uid with a server timestamp, and removed on disconnect', async ({ page }) => {
   await openWithFakeFirebase(page);
   await expect.poll(async () => (await presenceWrites(page)).length).toBeGreaterThan(0);
   const writes = await presenceWrites(page);
   const ownPath = writes[0].path;
-  expect(ownPath).toMatch(/^rooms\/global\/players\/fake-anon-uid_[a-z0-9]+$/);
+  expect(ownPath).toMatch(/^rooms\/global\/players\/fake-anon-uid-[a-z0-9]+$/);
   expect(await page.evaluate(() => window.__fakeRtdb.disconnectRemoves)).toEqual([ownPath]);
   for (const write of writes) {
     expect(write.path).toBe(ownPath);
@@ -53,7 +53,9 @@ test('the game still plays when anonymous sign-in fails', async ({ page }) => {
     Object.defineProperty(window, 'firebase', {
       configurable: true,
       set(value) {
-        value.auth = () => ({ signInAnonymously: () => Promise.reject(new Error('auth/operation-not-allowed')) });
+        const realAuth = value.auth;
+        value.auth = () => ({ setPersistence: () => Promise.resolve(), signInAnonymously: () => Promise.reject(new Error('auth/operation-not-allowed')) });
+        value.auth.Auth = realAuth.Auth;
         Object.defineProperty(window, 'firebase', { value, writable: true, configurable: true });
       },
     });
@@ -81,7 +83,7 @@ test('a stale-ally delete refused by the rules does not raise a page error', asy
   expect(pageErrors).toEqual([]);
 });
 
-test('two tabs in the same browser get separate entries', async ({ browser }) => {
+test('two tabs in the same browser get separate uids and entries', async ({ browser }) => {
   const context = await browser.newContext();
   const keys = [];
   for (let i = 0; i < 2; i++) {

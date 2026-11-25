@@ -42,8 +42,26 @@
     initializeApp: noop,
     firestore: function () { return { collection: function () { return query; } }; },
     database: database,
-    auth: function () {
-      return { signInAnonymously: function () { return Promise.resolve({ user: { uid: window.__fakeRtdb.uid } }); } };
-    },
+    auth: fakeAuth,
   };
+
+  // Like the real SDK: with session persistence the uid lives in sessionStorage (one per tab);
+  // otherwise every tab of the browser shares one uid.
+  function fakeAuth() {
+    return {
+      setPersistence: function (persistence) {
+        window.__fakeRtdb.persistence = persistence;
+        return Promise.resolve();
+      },
+      signInAnonymously: function () {
+        var uid = window.__fakeRtdb.uid;
+        if (window.__fakeRtdb.persistence === 'session') {
+          uid = sessionStorage.getItem('fakeAnonUid') || 'fake-anon-uid-' + Math.random().toString(36).slice(2, 10);
+          sessionStorage.setItem('fakeAnonUid', uid);
+        }
+        return Promise.resolve({ user: { uid: uid } });
+      },
+    };
+  }
+  fakeAuth.Auth = { Persistence: { LOCAL: 'local', NONE: 'none', SESSION: 'session' } };
 })();

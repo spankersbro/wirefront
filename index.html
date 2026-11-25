@@ -405,8 +405,8 @@
   var db = null, userCap = null;
 
   var rtdb = null, presenceRef = null;
-  // '<anonymous uid>_<per-tab suffix>'. The RTDB rules only let a player write keys that start with their uid.
-  // The suffix keeps one tank per tab: the uid is shared by every tab in the browser and survives reloads.
+  // The anonymous Firebase Auth uid. The RTDB rules only let a player write the entry under their own uid,
+  // so each account can hold one tank.
   var clientId = null;
   var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
   var allies = {};
@@ -1492,7 +1492,11 @@
 
     try{
       rtdb = firebase.database();
-      firebase.auth().signInAnonymously().then(joinRoom, function(error){
+      // Session persistence gives each tab its own anonymous uid, so two tabs are two tanks, not one shared entry.
+      var auth = firebase.auth();
+      auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).then(function(){
+        return auth.signInAnonymously();
+      }).then(joinRoom, function(error){
         console.warn('Wirefront: anonymous sign-in failed, playing without co-op presence.', error);
       });
     }catch(e){
@@ -1501,7 +1505,7 @@
   }
 
   function joinRoom(credential){
-    clientId = credential.user.uid + '_' + Math.random().toString(36).slice(2, 10);
+    clientId = credential.user.uid;
     presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
     presenceRef.onDisconnect().remove();
     subscribeAllies();

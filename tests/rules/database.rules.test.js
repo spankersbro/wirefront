@@ -8,8 +8,8 @@ const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@fir
 const { ref, set, remove, serverTimestamp } = require('firebase/database');
 
 const PLAYERS = 'rooms/global/players';
-// Entry keys are '<uid>_<per-tab suffix>'.
-const ALICE = 'alice_tab1';
+// Entry keys are the anonymous uid; each tab signs in with its own.
+const ALICE = 'alice';
 // Must match PRESENCE_TIMEOUT_MS in index.html.
 const STALE_MS = 15000;
 
@@ -41,14 +41,10 @@ test('a signed-in player can write their own entry', async () => {
   await assertSucceeds(set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), presence()));
 });
 
-test('a player can have one entry per tab', async () => {
-  await assertSucceeds(set(ref(dbAs('alice'), `${PLAYERS}/alice_tab2`), presence()));
-});
-
-test('a key without the uid_ prefix is refused, even the bare uid or a longer uid', async () => {
-  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/alice`), presence()));
-  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/alicex_tab1`), presence()));
-  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/tab1_alice`), presence()));
+test('one account cannot hold a second entry, so one sign-in is one tank', async () => {
+  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/alice_2`), presence()));
+  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/alicex`), presence()));
+  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/xalice`), presence()));
 });
 
 test('a signed-in player cannot write another player\'s entry', async () => {
