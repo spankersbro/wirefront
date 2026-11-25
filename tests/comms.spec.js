@@ -81,26 +81,34 @@ test('a burst of 5 joins inside one batch window reads as one line and one voice
 test('nothing is announced before the batch window closes', async ({ page }) => {
   await openRoom(page);
   await join(page, 'p1', 'IRON WOLF');
-  await page.clock.runFor(BATCH_MS - 100);
+  await page.clock.runFor(BATCH_MS - 1);
   await expect(commsLines(page)).toHaveCount(0);
   expect(await spoken(page)).toEqual([]);
 });
 
-test('a second batch within 4s shows a line but stays silent; after 4s it speaks again', async ({ page }) => {
+test('a second batch within 4s shows a line but stays silent', async ({ page }) => {
   await openRoom(page);
   await join(page, 'p1', 'IRON WOLF');
   await join(page, 'p2', 'GHOST HAWK');
   await page.clock.runFor(BATCH_MS);
+  expect(await spoken(page)).toEqual(['2 pilots have entered the field']);
 
+  await page.clock.runFor(AUDIO_GAP_MS - 1 - BATCH_MS);
   await join(page, 'p3', 'LONE FOX');
   await page.clock.runFor(BATCH_MS);
   await expect(commsLines(page).last()).toHaveText('LONE FOX ON GRID');
   expect(await spoken(page)).toEqual(['2 pilots have entered the field']);
+});
 
-  await page.clock.runFor(AUDIO_GAP_MS);
-  await join(page, 'p4', 'GRIM RAVEN');
+test('a batch exactly 4s after the last voice line is spoken', async ({ page }) => {
+  await openRoom(page);
+  await join(page, 'p1', 'IRON WOLF');
   await page.clock.runFor(BATCH_MS);
-  expect(await spoken(page)).toEqual(['2 pilots have entered the field', 'GRIM RAVEN has entered the field']);
+
+  await page.clock.runFor(AUDIO_GAP_MS - BATCH_MS);
+  await join(page, 'p2', 'GHOST HAWK');
+  await page.clock.runFor(BATCH_MS);
+  expect(await spoken(page)).toEqual(['IRON WOLF has entered the field', 'GHOST HAWK has entered the field']);
 });
 
 test('joins and leaves in the same window give two lines; only the join is spoken', async ({ page }) => {
@@ -113,16 +121,17 @@ test('joins and leaves in the same window give two lines; only the join is spoke
   expect(await spoken(page)).toEqual(['LONE FOX has entered the field']);
 });
 
-test('the comms feed never shows more than 3 lines', async ({ page }) => {
+test('the comms feed keeps only the newest 3 lines', async ({ page }) => {
   await openRoom(page);
-  for (let i = 0; i < 5; i++) {
-    await join(page, 'p' + i, 'IRON WOLF');
+  // 900ms apart, all 4 lines are still inside their 3.6s fade, so only the cap can drop the first.
+  for (const [i, name] of ['IRON WOLF', 'GHOST HAWK', 'LONE FOX', 'GRIM RAVEN'].entries()) {
+    await join(page, 'p' + i, name);
     await page.clock.runFor(BATCH_MS);
   }
-  await expect(commsLines(page)).toHaveCount(3);
+  await expect(commsLines(page)).toHaveText(['GHOST HAWK ON GRID', 'LONE FOX ON GRID', 'GRIM RAVEN ON GRID']);
 });
 
-test('a player leaving and an unknown leave event', async ({ page }) => {
+test('an unknown leave is ignored; a known leave is shown and spoken by name', async ({ page }) => {
   await openRoom(page, [['p1', presence('IRON WOLF')]]);
   await leave(page, 'never-joined');
   await page.clock.runFor(BATCH_MS);
@@ -131,6 +140,17 @@ test('a player leaving and an unknown leave event', async ({ page }) => {
   await leave(page, 'p1');
   await page.clock.runFor(BATCH_MS);
   await expect(commsLines(page)).toHaveText(['IRON WOLF OFFLINE']);
+  expect(await spoken(page)).toEqual(['IRON WOLF has left the field']);
+});
+
+test('a burst of 3 leaves reads as one line and one voice line', async ({ page }) => {
+  await openRoom(page, [['p1', presence('IRON WOLF')], ['p2', presence('GHOST HAWK')], ['p3', presence('LONE FOX')]]);
+  await leave(page, 'p1');
+  await leave(page, 'p2');
+  await leave(page, 'p3');
+  await page.clock.runFor(BATCH_MS);
+  await expect(commsLines(page)).toHaveText(['3 PILOTS OFFLINE']);
+  expect(await spoken(page)).toEqual(['3 pilots have left the field']);
 });
 
 test('every batch waits its own full window, even right after an earlier batch', async ({ page }) => {
@@ -143,8 +163,8 @@ test('every batch waits its own full window, even right after an earlier batch',
 
   await page.clock.runFor(100);
   await join(page, 'p3', 'LONE FOX');
-  await page.clock.runFor(BATCH_MS - 100);
+  await page.clock.runFor(BATCH_MS - 1);
   await expect(commsLines(page)).toHaveCount(1);
-  await page.clock.runFor(100);
+  await page.clock.runFor(1);
   await expect(commsLines(page).last()).toHaveText('LONE FOX ON GRID');
 });

@@ -1,5 +1,7 @@
 // Stands in for the Firebase compat SDK in tests. No network code: the test
 // drives presence events through window.__fakeRtdb instead of live RTDB.
+// Simplified on purpose: every ref shares one listener map whatever its path, and
+// remove() does not echo a child_removed, so the stale sweep is not modelled.
 (function () {
   var listeners = {};
   var noop = function () {};
