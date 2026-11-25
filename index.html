@@ -405,7 +405,8 @@
   var db = null, userCap = null;
 
   var rtdb = null, presenceRef = null;
-  // The anonymous Firebase Auth uid; the RTDB rules only let a player write the entry under it.
+  // '<anonymous uid>_<per-tab suffix>'. The RTDB rules only let a player write keys that start with their uid.
+  // The suffix keeps one tank per tab: the uid is shared by every tab in the browser and survives reloads.
   var clientId = null;
   var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
   var allies = {};
@@ -1500,7 +1501,7 @@
   }
 
   function joinRoom(credential){
-    clientId = credential.user.uid;
+    clientId = credential.user.uid + '_' + Math.random().toString(36).slice(2, 10);
     presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
     presenceRef.onDisconnect().remove();
     subscribeAllies();

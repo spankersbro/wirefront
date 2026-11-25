@@ -14,12 +14,15 @@ async function openWithFakeFirebase(page) {
 
 const presenceWrites = (page) => page.evaluate(() => window.__fakeRtdb.writes);
 
-test('presence is written under the signed-in uid with a server timestamp', async ({ page }) => {
+test('presence is written under uid_<tab> with a server timestamp, and removed on disconnect', async ({ page }) => {
   await openWithFakeFirebase(page);
   await expect.poll(async () => (await presenceWrites(page)).length).toBeGreaterThan(0);
   const writes = await presenceWrites(page);
+  const ownPath = writes[0].path;
+  expect(ownPath).toMatch(/^rooms\/global\/players\/fake-anon-uid_[a-z0-9]+$/);
+  expect(await page.evaluate(() => window.__fakeRtdb.disconnectRemoves)).toEqual([ownPath]);
   for (const write of writes) {
-    expect(write.path).toBe('rooms/global/players/fake-anon-uid');
+    expect(write.path).toBe(ownPath);
     expect(write.value.t).toEqual({ '.sv': 'timestamp' });
     expect(write.value.name).toMatch(/^[A-Z]{3,8} [A-Z]{3,8}$/);
   }
@@ -32,10 +35,11 @@ test('our own entry in the room is not shown or announced as an ally', async ({ 
   });
   await openWithFakeFirebase(page);
   await expect.poll(async () => (await presenceWrites(page)).length).toBeGreaterThan(0);
-  await page.evaluate(() => {
+  const ownKey = (await presenceWrites(page))[0].path.split('/').pop();
+  await page.evaluate((ownKey) => {
     window.__fakeRtdb.finishInitialLoad();
-    window.__fakeRtdb.emit('child_added', 'fake-anon-uid', { name: 'IRON WOLF', x: 0, z: 0, yaw: 0, t: Date.now() });
-  });
+    window.__fakeRtdb.emit('child_added', ownKey, { name: 'IRON WOLF', x: 0, z: 0, yaw: 0, t: Date.now() });
+  }, ownKey);
   // Longer than the 900ms announcement batch window.
   await page.waitForTimeout(1500);
   await expect(page.locator('#commsFeed .comms-line')).toHaveCount(0);
@@ -73,6 +77,19 @@ test('a stale-ally delete refused by the rules does not raise a page error', asy
     // 20s old: past the 15s presence timeout, so the next sweep (every 3s) tries to delete it.
     window.__fakeRtdb.emit('child_added', 'someone-else', { name: 'IRON WOLF', x: 30, z: 30, yaw: 0, t: Date.now() - 20000 });
   });
-  await page.waitForTimeout(3500);
+  await expect.poll(() => page.evaluate(() => window.__fakeRtdb.removes), { timeout: 5000 }).toContain('rooms/global/players/someone-else');
   expect(pageErrors).toEqual([]);
+});
+
+test('two tabs in the same browser get separate entries', async ({ browser }) => {
+  const context = await browser.newContext();
+  const keys = [];
+  for (let i = 0; i < 2; i++) {
+    const page = await context.newPage();
+    await openWithFakeFirebase(page);
+    await expect.poll(async () => (await presenceWrites(page)).length).toBeGreaterThan(0);
+    keys.push((await presenceWrites(page))[0].path);
+  }
+  expect(keys[0]).not.toBe(keys[1]);
+  await context.close();
 });

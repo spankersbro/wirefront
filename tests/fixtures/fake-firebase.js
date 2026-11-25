@@ -5,6 +5,8 @@
 (function () {
   var listeners = {};
   var writes = [];
+  var removes = [];
+  var disconnectRemoves = [];
   var noop = function () {};
   var SERVER_TIMESTAMP = { '.sv': 'timestamp' };
 
@@ -13,8 +15,8 @@
       on: function (event, callback) { (listeners[event] = listeners[event] || []).push(callback); },
       once: function (event, callback) { (listeners['once:' + event] = listeners['once:' + event] || []).push(callback); },
       set: function (value) { writes.push({ path: path, value: value }); return Promise.resolve(); },
-      remove: function () { return window.__fakeRtdb.refuseRemoves ? Promise.reject(new Error('PERMISSION_DENIED')) : Promise.resolve(); },
-      onDisconnect: function () { return { remove: noop }; },
+      remove: function () { removes.push(path); return window.__fakeRtdb.refuseRemoves ? Promise.reject(new Error('PERMISSION_DENIED')) : Promise.resolve(); },
+      onDisconnect: function () { return { remove: function () { disconnectRemoves.push(path); } }; },
     };
   }
 
@@ -27,6 +29,8 @@
   window.__fakeRtdb = {
     emit: emit,
     writes: writes,
+    removes: removes,
+    disconnectRemoves: disconnectRemoves,
     uid: 'fake-anon-uid',
     finishInitialLoad: function () { emit('once:value'); },
   };
