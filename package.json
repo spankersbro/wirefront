@@ -2,9 +2,13 @@
   "name": "wirefront",
   "private": true,
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:rules": "firebase emulators:exec --only database --project demo-wirefront 'node --test tests/rules/*.test.js'"
   },
   "devDependencies": {
-    "@playwright/test": "1.65.0"
+    "@firebase/rules-unit-testing": "6.0.0",
+    "@playwright/test": "1.65.0",
+    "firebase": "13.3.0",
+    "firebase-tools": "15.36.0"
   }
 }

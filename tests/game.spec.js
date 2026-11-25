@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
-const FIREBASE_HOSTS = /gstatic\.com\/firebasejs|firebaseio\.com|firestore\.googleapis\.com|firebaseinstallations\.googleapis\.com/;
-const FIREBASE_SDK_SCRIPTS = ['firebase-app-compat.js', 'firebase-firestore-compat.js', 'firebase-database-compat.js'];
+const FIREBASE_HOSTS = /gstatic\.com\/firebasejs|firebaseio\.com|firestore\.googleapis\.com|firebaseinstallations\.googleapis\.com|identitytoolkit\.googleapis\.com|securetoken\.googleapis\.com/;
+const FIREBASE_SDK_SCRIPTS = ['firebase-app-compat.js', 'firebase-firestore-compat.js', 'firebase-database-compat.js', 'firebase-auth-compat.js'];
 // The game caps frame time at 50ms, so a slow software-WebGL runner also slows game time. 15s covers ~2fps.
 const SLOW_RUNNER_POLL = { timeout: 15000 };
 
