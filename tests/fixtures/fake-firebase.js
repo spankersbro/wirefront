@@ -59,8 +59,10 @@
 
   // Like the real SDK: with session persistence the uid lives in sessionStorage (one per tab);
   // otherwise every tab of the browser shares one uid.
+  var signedInUser = null;
   function fakeAuth() {
     return {
+      get currentUser() { return signedInUser; },
       setPersistence: function (persistence) {
         window.__fakeRtdb.persistence = persistence;
         return Promise.resolve();
@@ -71,7 +73,8 @@
           uid = sessionStorage.getItem('fakeAnonUid') || 'fake-anon-uid-' + Math.random().toString(36).slice(2, 10);
           sessionStorage.setItem('fakeAnonUid', uid);
         }
-        return Promise.resolve({ user: { uid: uid } });
+        signedInUser = { uid: uid, getIdToken: function () { return Promise.resolve('fake-id-token'); } };
+        return Promise.resolve({ user: signedInUser });
       },
     };
   }
