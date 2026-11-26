@@ -6,8 +6,8 @@
           ".read": true,
           "$playerId": {
             ".write": "auth != null && (auth.uid === $playerId || (!newData.exists() && data.child('t').val() < now - 15000))",
-            ".validate": "newData.hasChildren(['name','x','z','yaw','t'])",
-            "name": { ".validate": "newData.isString() && newData.val().matches(/^[A-Z]{3,8} [A-Z]{3,8}$/)" },
+            ".validate": "newData.hasChildren(['name','x','z','yaw','t']) && newData.child('name').val().matches(/^(SILENT|IRON|GHOST|CRIMSON|ARCTIC|LONE|SWIFT|NIGHT|STEEL|VOID|RAPID|GRIM|SOLAR|ROGUE|QUIET) (FALCON|WOLF|VIPER|HORNET|RAVEN|COBRA|SPECTRE|TALON|REAPER|FOX|LYNX|HAWK|JACKAL|CONDOR|MANTIS)$/)",
+            "name": { ".validate": "newData.isString()" },
             "x": { ".validate": "newData.isNumber() && newData.val() >= -1000 && newData.val() <= 1000" },
             "z": { ".validate": "newData.isNumber() && newData.val() >= -1000 && newData.val() <= 1000" },
             "yaw": { ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 100" },

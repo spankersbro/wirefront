@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
-const { ref, set, remove, serverTimestamp } = require('firebase/database');
+const { ref, set, update, get, remove, serverTimestamp } = require('firebase/database');
 
 const PLAYERS = 'rooms/global/players';
 // Entry keys are the anonymous uid; each tab signs in with its own.
@@ -100,7 +100,47 @@ test('existing shape checks still apply to your own entry', async () => {
 });
 
 test('the room is still readable without signing in', async () => {
-  const { get } = require('firebase/database');
   await seed(ALICE, presence());
   await assertSucceeds(get(ref(dbAs(null), PLAYERS)));
+});
+
+// WF-13: callsigns are read aloud to every player, so the rule allows only the game's own words.
+function writeName(name) {
+  return set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), presence({ name }));
+}
+
+test('a callsign made of one adjective and one noun from the game is accepted', async () => {
+  await assertSucceeds(writeName('GHOST HAWK'));
+  await assertSucceeds(writeName('SILENT FALCON'));
+  await assertSucceeds(writeName('VOID FOX'));
+});
+
+test('any other two words are refused, even in the old name format', async () => {
+  for (const name of ['HELLO WORLD', 'WOLF IRON', 'IRON IRON', 'XIRON WOLF', 'IRONX WOLF', 'IRON XWOLF', 'IRON WOLFX',
+    'IRON  WOLF', 'IRON WOLF ', ' IRON WOLF', 'iron wolf', 'IRON', 'IRON WOLF FOX', '']) {
+    await assertFails(writeName(name), `expected "${name}" to be refused`);
+  }
+});
+
+// Reads the lists out of index.html on purpose: this guards against the game and the rule drifting apart.
+test('every callsign the game can generate is accepted', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
+  const list = (varName) => {
+    const found = html.match(new RegExp(`var ${varName} = (\\[[^\\]]*\\]);`));
+    assert.ok(found, `${varName} not found in index.html; update this parser and the name rule`);
+    return JSON.parse(found[1].replace(/'/g, '"'));
+  };
+  const adjectives = list('CALLSIGN_ADJ');
+  const nouns = list('CALLSIGN_NOUN');
+  assert.equal(adjectives.length * nouns.length, 225);
+  for (const adjective of adjectives) {
+    for (const noun of nouns) await assertSucceeds(writeName(`${adjective} ${noun}`));
+  }
+});
+
+test('an entry written before the name rule cannot be kept alive by updating other fields', async () => {
+  await seed(ALICE, presence({ name: 'HELLO WORLD', t: Date.now() }));
+  await assertFails(update(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), { x: 3, t: serverTimestamp() }));
+  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}/x`), 7));
+  await assertSucceeds(set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), presence()));
 });
