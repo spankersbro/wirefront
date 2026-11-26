@@ -31,6 +31,8 @@ jobs:
           # firebase-tools pins the emulator jar versions, so the lockfile is the right key.
           key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm run test:rules
+      - run: npm ci --prefix proxy
+      - run: npm test --prefix proxy
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
