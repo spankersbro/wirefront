@@ -97,8 +97,8 @@ below is a snapshot; the tracker is the live copy.
 - [x] Phase 1 polish shipped 2026-09-21 — join/leave comms, tank collision, brighter lines.
 - [ ] Load-test join/leave comms batching with more than 2 concurrent clients — the batching
       and rate-limit math is sound on paper, unverified with a real burst of arrivals.
-- [ ] Decide if comms audio/TTS needs a mute toggle — none exists yet, and it could get old
-      for a player sitting in a room where people cycle in and out.
+- [x] Comms mute toggle (WF-4): COMMS button in the HUD or the M key, remembered per browser.
+      Mutes the join/leave chime and voice; the comms line still shows.
 - [ ] Decide Gemini call frequency and prompt shape before building the proxy — affects cost
       directly.
 - [ ] Decide whether Phase 2 (shared world) ships before or after the Gemini tactical AI —
