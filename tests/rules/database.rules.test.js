@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
-const { ref, set, remove, serverTimestamp } = require('firebase/database');
+const { ref, set, update, get, remove, serverTimestamp } = require('firebase/database');
 
 const PLAYERS = 'rooms/global/players';
 // Entry keys are the anonymous uid; each tab signs in with its own.
@@ -100,7 +100,6 @@ test('existing shape checks still apply to your own entry', async () => {
 });
 
 test('the room is still readable without signing in', async () => {
-  const { get } = require('firebase/database');
   await seed(ALICE, presence());
   await assertSucceeds(get(ref(dbAs(null), PLAYERS)));
 });
@@ -140,7 +139,6 @@ test('every callsign the game can generate is accepted', async () => {
 });
 
 test('an entry written before the name rule cannot be kept alive by updating other fields', async () => {
-  const { update } = require('firebase/database');
   await seed(ALICE, presence({ name: 'HELLO WORLD', t: Date.now() }));
   await assertFails(update(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), { x: 3, t: serverTimestamp() }));
   await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}/x`), 7));
