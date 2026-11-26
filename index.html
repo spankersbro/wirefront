@@ -873,6 +873,7 @@
     var count = Math.min(3+Math.floor((n-1)*1.3), 10);
     for (var i=0;i<count;i++) spawnEnemy();
     enemiesRemainingInWave = count;
+    gemini.voicedThisWave = false;
     showToast('WAVE ' + n);
   }
 
@@ -1456,7 +1457,7 @@
   // Tuned by eye in play, not measured. ADVANCE_STOP is the scripted AI's old stop distance.
   var FLANK_RADIUS = 24, FLANK_SWING = 0.9, HOLD_RANGE = 45, RETREAT_RANGE = 55, ADVANCE_STOP = 16;
   // requestNumber: only the latest request may act; an older one finishing late (after a give-up or a new game) is ignored.
-  var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0, requestNumber:0 };
+  var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0, requestNumber:0, voicedThisWave:false };
   // lastAskAt survives a new game on purpose: the proxy answers 'too-soon' to calls under 4s apart.
   function resetGeminiForNewGame(){
     gemini.requestNumber += 1;
@@ -1594,14 +1595,19 @@
     announceGeminiOrders(changed);
   }
 
-  // Announces the most common new order, e.g. "GEMINI: 3 TANKS FLANK LEFT".
+  // Shows the most common new order, e.g. "GEMINI: 3 TANKS FLANK LEFT". The voice speaks once per wave only (WF-32):
+  // a voice line on every order change was too much in play.
   function announceGeminiOrders(changed){
     var tactic = null;
     Object.keys(changed).forEach(function(t){ if (!tactic || changed[t] > changed[tactic]) tactic = t; });
     if (!tactic) return;
     var count = changed[tactic], words = TACTIC_WORDS[tactic];
     showCommsLine('GEMINI: ' + count + (count === 1 ? ' TANK ' : ' TANKS ') + words.toUpperCase(), 'gemini');
-    playCommsAudio(playCommsJoin, 'Gemini orders ' + (count === 1 ? 'a tank' : count + ' tanks') + ' to ' + words);
+    if (gemini.voicedThisWave) return;
+    // Marked even when muted or the 4 s audio gap swallows it: one try per wave, no catch-up later in the wave.
+    gemini.voicedThisWave = true;
+    var controlled = enemies.filter(function(e){ return e.alive && e.tacticSource === 'gemini'; }).length;
+    playCommsAudio(playCommsJoin, 'Gemini controls ' + (controlled === 1 ? 'a tank' : controlled + ' tanks'));
   }
 
   function updateShots(dt){
