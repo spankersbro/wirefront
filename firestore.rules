@@ -8,6 +8,8 @@ service cloud.firestore {
         && request.resource.data.initials.size() >= 1
         && request.resource.data.initials.size() <= 3
         && request.resource.data.initials.matches('^[A-Z]{1,3}$')
+        // index.html blocks the same list; change both together.
+        && !(request.resource.data.initials in ['ASS','CUM','DIC','DIK','FAG','FCK','FUC','FUK','FUQ','HH','KKK','NAZ','NIG','SEX','SHT','SS','TIT'])
         && request.resource.data.score is int
         && request.resource.data.score >= 0
         && request.resource.data.score <= 999999

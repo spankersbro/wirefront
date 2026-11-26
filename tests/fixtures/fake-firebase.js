@@ -40,7 +40,14 @@
     setServerTimeOffset: function (offsetMs) { emit('.info/serverTimeOffset:value', null, offsetMs); },
   };
 
-  var query = { orderBy: function () { return query; }, limit: function () { return query; }, onSnapshot: noop };
+  var scoreAdds = [];
+  window.__fakeFirestore = { adds: scoreAdds };
+  var query = {
+    orderBy: function () { return query; },
+    limit: function () { return query; },
+    onSnapshot: noop,
+    add: function (doc) { scoreAdds.push(doc); return Promise.resolve(); },
+  };
   var database = function () { return { ref: ref }; };
   database.ServerValue = { TIMESTAMP: SERVER_TIMESTAMP };
   window.firebase = {

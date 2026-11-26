@@ -206,6 +206,7 @@
     background:var(--void); color:var(--phosphor); border:1px solid var(--phosphor-dim);
     padding:.4rem .3rem .4rem .6rem; caret-color:var(--phosphor);
   }
+  .initials-error{ margin-top:.45rem; font-size:.72rem; letter-spacing:.06em; color:var(--amber); }
   input#initials:focus-visible, button:focus-visible{ outline:2px solid var(--amber); outline-offset:2px; }
   button.arcade-btn{
     font-family:'Share Tech Mono',monospace; font-size:.78rem; letter-spacing:.1em; text-transform:uppercase;
@@ -308,11 +309,12 @@
     <div class="tagline" id="finalWave">Reached wave 1</div>
     <div class="rule"></div>
     <div id="initialsStep">
-      <div class="board-title" style="margin-bottom:.5rem">Enter Callsign</div>
+      <div class="board-title" style="margin-bottom:.5rem">Enter Initials</div>
       <div class="initials-row">
         <input id="initials" maxlength="3" autocomplete="off" spellcheck="false" value="ACE">
         <button class="arcade-btn" id="submitScoreBtn">Save</button>
       </div>
+      <div class="initials-error" id="initialsError" role="alert" hidden>Those initials are not allowed. Pick others.</div>
     </div>
     <div class="rule"></div>
     <div style="width:100%">
@@ -1128,6 +1130,7 @@
     document.getElementById('finalScore').textContent = G.score;
     document.getElementById('finalWave').textContent = 'Reached wave ' + G.wave;
     initialsStep.style.display = '';
+    initialsError.hidden = true;
     gameOverOverlay.hidden = false;
     renderBoard(document.getElementById('goBoard'));
     saveHot(true);
@@ -1310,9 +1313,14 @@
   }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 
+  // firestore.rules refuses the same list; change both together.
+  var BLOCKED_INITIALS = ['ASS','CUM','DIC','DIK','FAG','FCK','FUC','FUK','FUQ','HH','KKK','NAZ','NIG','SEX','SHT','SS','TIT'];
+  var initialsError = document.getElementById('initialsError');
+
   function submitScore(){
     var raw = document.getElementById('initials').value || 'ACE';
     var initials = raw.toUpperCase().replace(/[^A-Z]/g,'').slice(0,3) || 'ACE';
+    if (BLOCKED_INITIALS.indexOf(initials) > -1){ initialsError.hidden = false; return; }
     playBlip();
     if (db){
       db.collection('scores').add({ initials: initials, score: G.score, wave: G.wave, ts: Date.now() }).catch(function(){});
@@ -1325,6 +1333,7 @@
   });
   document.getElementById('initials').addEventListener('input', function(ev){
     ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,3);
+    initialsError.hidden = true;
   });
 
   document.getElementById('startBtn').addEventListener('click', startGame);
