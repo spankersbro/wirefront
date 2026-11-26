@@ -417,6 +417,7 @@
 
   var rtdb = null, presenceRef = null;
   var serverTimeOffsetMs = 0;
+  function serverNow(){ return Date.now() + serverTimeOffsetMs; }
   // The anonymous Firebase Auth uid. The RTDB rules only let a player write the entry under their own uid,
   // so each account can hold one tank.
   var clientId = null;
@@ -1366,8 +1367,6 @@
   // without onDisconnect firing (crash, force-quit, killed network) and leave a
   // frozen tank behind. Sweep out any ally whose last update is stale and drop
   // its rtdb entry so every client converges on the same removal.
-  function serverNow(){ return Date.now() + serverTimeOffsetMs; }
-
   function sweepStaleAllies(){
     if (!rtdb) return;
     // Presence t is server time; the rules check staleness against server time too.

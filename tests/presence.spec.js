@@ -110,7 +110,7 @@ async function addAllyAtServerAge(page, offsetMs, ageMs) {
 test('with the local clock 60s fast, a fresh ally is not swept', async ({ page }) => {
   await openWithFakeFirebase(page);
   await addAllyAtServerAge(page, -60000, 0);
-  // A stale ally proves a sweep ran; both are checked in the same sweep.
+  // Once the stale ally is removed, at least one sweep has also checked the fresh one.
   await page.evaluate(() => {
     window.__fakeRtdb.emit('child_added', 'stale-ally', { name: 'GHOST HAWK', x: 40, z: 40, yaw: 0, t: Date.now() - 60000 - 20000 });
   });
