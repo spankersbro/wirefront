@@ -42,3 +42,9 @@ test('an HTTP error, network error, empty answer or non-JSON answer throws Gemin
     await assert.rejects(ask(SUMMARY), GeminiError);
   }
 });
+
+test('a cut-off answer still carries the token counts Google billed', async () => {
+  const reply = { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"orders":[{"id":"t1","tac' }] } }], usageMetadata: { promptTokenCount: 400, candidatesTokenCount: 300 } }) };
+  const ask = makeGeminiClient({ apiKey: 'k', model: 'm', timeoutSeconds: 4, fetchImpl: async () => reply });
+  await assert.rejects(ask(SUMMARY), (error) => error instanceof GeminiError && error.usage.candidatesTokenCount === 300);
+});

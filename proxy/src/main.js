@@ -27,6 +27,7 @@ const server = createServer({
     dailyBudgetUsd: positiveNumberEnv('APP__LIMITS__DAILY_BUDGET_USD'),
     inputUsdPerMillionTokens: positiveNumberEnv('APP__GEMINI__INPUT_USD_PER_MILLION_TOKENS'),
     outputUsdPerMillionTokens: positiveNumberEnv('APP__GEMINI__OUTPUT_USD_PER_MILLION_TOKENS'),
+    log,
   }),
   allowedOrigins: requiredEnv('APP__CORS__ORIGINS').split(',').map((origin) => origin.trim()),
   minIntervalSeconds: positiveNumberEnv('APP__LIMITS__MIN_INTERVAL_SECONDS'),

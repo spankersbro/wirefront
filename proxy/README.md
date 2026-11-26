@@ -12,6 +12,12 @@ Limits (WF-7, €5/month):
 Above any limit, or when Gemini fails, the answer is `{ "source": "scripted" }` and the game keeps
 its own AI.
 
+Spend is recorded for failed calls too, since Google may still bill them; when Gemini reports no
+token counts (for example on a timeout), a worst case of 800 input and 600 output tokens is recorded.
+Calls in flight when the budget runs out can overshoot it by a few percent. The per-player count is
+kept in memory, so it resets when the service scales to zero or is redeployed: it slows one script
+down, it does not stop several. App Check (WF-17) is the real fix.
+
 Not capped by this service: Cloud Run request charges for refused requests (after 2M free requests a
 month, $0.40 per million). `--max-instances 1` caps instance time. A budget-triggered shutdown is
 WF-26.

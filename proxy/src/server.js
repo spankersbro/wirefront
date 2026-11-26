@@ -93,7 +93,9 @@ function createServer({ verifyToken, askGemini, dailyUsage, allowedOrigins, minI
       answer = await askGemini(summary);
     } catch (error) {
       if (!(error instanceof GeminiError)) throw error;
-      log('warning', 'gemini call failed', { uid, error: error.message });
+      // Google may still bill a failed call; record its usage, or the worst case if unknown.
+      const usd = await dailyUsage.record(error.usage);
+      log('warning', 'gemini call failed', { uid, error: error.message, usd });
       return send(res, 200, { source: 'scripted', reason: 'gemini-error' });
     }
     const usd = await dailyUsage.record(answer.usage);

@@ -130,11 +130,12 @@ test('a bug outside the Gemini call is a 500 with the stack logged, not a quiet 
   assert.ok(s.calls.logs.some((entry) => entry.severity === 'error'));
 });
 
-test('a failing Gemini call falls back to the scripted AI and is logged', async (t) => {
-  const s = await start({ overrides: { askGemini: async () => { throw new GeminiError('Gemini HTTP 503'); } } });
+test('a failing Gemini call falls back to the scripted AI, is logged, and its cost is still recorded', async (t) => {
+  const s = await start({ overrides: { askGemini: async () => { throw new GeminiError('cut off', { promptTokenCount: 400, candidatesTokenCount: 300 }); } } });
   t.after(s.close);
   const response = await s.post(SUMMARY);
   assert.deepEqual(await response.json(), { source: 'scripted', reason: 'gemini-error' });
+  assert.deepEqual(s.calls.recorded, [{ promptTokenCount: 400, candidatesTokenCount: 300 }]);
   assert.ok(s.calls.logs.some((entry) => entry.severity === 'warning' && entry.message === 'gemini call failed'));
 });
 

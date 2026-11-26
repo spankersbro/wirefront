@@ -26,7 +26,13 @@ const RESPONSE_SCHEMA = {
   required: ['orders'],
 };
 
-class GeminiError extends Error {}
+// usage: token counts when Google answered (it bills those even if the answer was unusable), else null.
+class GeminiError extends Error {
+  constructor(message, usage = null) {
+    super(message);
+    this.usage = usage;
+  }
+}
 
 // Calls generateContent and returns the parsed JSON plus token usage. Throws GeminiError on any failure.
 function makeGeminiClient({ apiKey, model, timeoutSeconds, fetchImpl = fetch }) {
@@ -55,16 +61,17 @@ function makeGeminiClient({ apiKey, model, timeoutSeconds, fetchImpl = fetch }) 
     }
     if (!response.ok) throw new GeminiError(`Gemini HTTP ${response.status}: ${(await response.text().catch(() => '')).slice(0, 300)}`);
     const data = await response.json().catch(() => null);
+    const usage = (data && data.usageMetadata) || null;
     const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
     const text = Array.isArray(parts) ? parts.map((part) => part.text || '').join('') : '';
-    if (!text) throw new GeminiError('Gemini returned no text');
+    if (!text) throw new GeminiError('Gemini returned no text', usage);
     let json;
     try {
       json = JSON.parse(text);
     } catch {
-      throw new GeminiError('Gemini returned text that is not JSON');
+      throw new GeminiError('Gemini returned text that is not JSON', usage);
     }
-    return { json, usage: data.usageMetadata || {} };
+    return { json, usage };
   };
 }
 

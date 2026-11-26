@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { makeDailyUsage } = require('../src/usage');
+const { makeDailyUsage, WORST_CASE_USAGE } = require('../src/usage');
 
 // In-memory stand-in for the Firestore calls the counter uses; counts reads.
 function fakeFirestore() {
@@ -51,4 +51,16 @@ test('once a day is used up, further checks do not read Firestore', async () => 
   const reads = firestore.stats.reads;
   for (let i = 0; i < 5; i++) assert.equal(await usage.hasBudget(), false);
   assert.equal(firestore.stats.reads, reads);
+});
+
+test('missing token counts are recorded as the worst case, with a warning', async () => {
+  const firestore = fakeFirestore();
+  const logs = [];
+  const usage = makeDailyUsage({ firestore, dailyBudgetUsd: 1, ...PRICES, now: () => Date.parse('2026-11-26T12:00:00Z'), log: (severity, message) => logs.push({ severity, message }) });
+  // 800 in at $0.25/M + 600 out at $1.50/M = $0.0002 + $0.0009 = $0.0011.
+  for (const reported of [null, {}, { candidatesTokenCount: 10 }]) {
+    assert.equal(Math.round((await usage.record(reported)) * 1e7), 11000);
+  }
+  assert.deepEqual(WORST_CASE_USAGE, { promptTokenCount: 800, candidatesTokenCount: 300, thoughtsTokenCount: 300 });
+  assert.equal(logs.filter((entry) => entry.severity === 'warning').length, 3);
 });
