@@ -173,10 +173,54 @@ test('a holding tank that lost the player also searches instead of parking', asy
   const start = (await probe(page)).enemies.find((e) => e.id === tank);
   // It keeps one search spot until it gets there (15-30 units away, so not within the first second).
   await page.clock.runFor(100);
-  const spot = (await probe(page)).enemies.find((e) => e.id === tank).lastSeen;
+  const spot = (await probe(page)).enemies.find((e) => e.id === tank).searchSpot;
+  expect(spot).not.toBeNull();
   await page.clock.runFor(1000);
-  expect((await probe(page)).enemies.find((e) => e.id === tank).lastSeen).toEqual(spot);
+  expect((await probe(page)).enemies.find((e) => e.id === tank).searchSpot).toEqual(spot);
   await page.clock.runFor(3900);
   const later = (await probe(page)).enemies.find((e) => e.id === tank);
   expect(Math.hypot(later.x - start.x, later.z - start.z)).toBeGreaterThan(5);
+});
+
+// Samples a searching tank's spots over the given game time.
+async function searchSpotsWhile(page, id, ms) {
+  const spots = [];
+  for (let t = 0; t < ms; t += 500) {
+    await page.clock.runFor(500);
+    const tank = (await probe(page)).enemies.find((e) => e.id === id);
+    if (tank.searchSpot && !spots.some((s) => s.x === tank.searchSpot.x && s.z === tank.searchSpot.z)) spots.push(tank.searchSpot);
+  }
+  return spots;
+}
+
+test('search spots stay around the last sighting and clear of obstacles', async ({ page }) => {
+  await openGame(page);
+  // Last seen at (0, -80). Four obstacles on the 15-30 unit ring round it, plus one hiding the player.
+  const ring = [[22, -80], [-22, -80], [0, -58], [0, -102]].map(([x, z]) => ({ x, z, r: 5 }));
+  const [tank] = await arrange(page, {
+    obstacles: [{ x: 0, z: -40, r: 8 }, ...ring],
+    // It cannot move, so it never sees the player round the obstacle and gives up each spot after 8 s: spots at 0, 8, 16, 24 s.
+    enemies: [{ x: 0, z: -80, speed: 0, lastSeen: { x: 0, z: -80 } }],
+  });
+  const spots = await searchSpotsWhile(page, tank, 26000);
+  expect(spots.length).toBe(4);
+  for (const spot of spots) {
+    // 30 is the search radius; a random walk from spot to spot drifts well past it within a few spots.
+    expect(Math.hypot(spot.x, spot.z + 80)).toBeLessThanOrEqual(30.01);
+    for (const o of ring) expect(Math.hypot(spot.x - o.x, spot.z - o.z)).toBeGreaterThanOrEqual(o.r + 5.6);
+  }
+});
+
+test('a tank that cannot reach its search spot gives it up after 8 s', async ({ page }) => {
+  await openGame(page);
+  const [tank] = await arrange(page, {
+    obstacles: [{ x: 0, z: -30, r: 8 }],
+    enemies: [{ x: 0, z: -60, speed: 0, lastSeen: { x: 0, z: -60 } }],
+  });
+  await page.clock.runFor(100);
+  const first = (await probe(page)).enemies.find((e) => e.id === tank).searchSpot;
+  await page.clock.runFor(7500);
+  expect((await probe(page)).enemies.find((e) => e.id === tank).searchSpot).toEqual(first);
+  await page.clock.runFor(1000);
+  expect((await probe(page)).enemies.find((e) => e.id === tank).searchSpot).not.toEqual(first);
 });
