@@ -99,10 +99,9 @@ below is a snapshot; the tracker is the live copy.
       and rate-limit math is sound on paper, unverified with a real burst of arrivals.
 - [x] Comms mute toggle (WF-4): COMMS button in the HUD or the M key, remembered per browser.
       Mutes the join/leave chime and voice; the comms line still shows.
-- [ ] Decide Gemini call frequency and prompt shape before building the proxy — affects cost
-      directly.
-- [ ] Decide whether Phase 2 (shared world) ships before or after the Gemini tactical AI —
-      Gemini-driven tanks are far more interesting once everyone's actually fighting the same
-      ones.
+- [x] Gemini call frequency and prompt shape (WF-7, 2026-11-26): €5/month ceiling, Flash-Lite,
+      one call per player every 5s for the whole wave, hard daily cap in the proxy, scripted AI
+      as fallback. Details in WF-7.
+- [x] Order (WF-8, 2026-11-26): Gemini tactical AI first, Phase 2 after.
 - [x] Budget alert for `wirefront-49636`: "Wirefront spend", €5/month, created 2026-11-25
       (WF-9). The project has billing enabled; it is not on the free Spark plan.
