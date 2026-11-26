@@ -116,20 +116,35 @@ test('Gemini orders are applied, marked on the tanks, shown on the radar and ann
   await page.clock.runFor(50);
   await expect(page.locator('#radarLabel')).toHaveText('Scan · AI Gemini');
   await expect(commsLines(page).last()).toHaveText('GEMINI: 3 TANKS FLANK LEFT');
-  expect(await spoken(page)).toEqual(['Gemini orders 3 tanks to flank left']);
+  expect(await spoken(page)).toEqual(['Gemini controls 3 tanks']);
 });
 
-test('the same orders again are not announced again; a change is', async ({ page }) => {
+test('the voice speaks once per wave; later order changes are shown but not spoken, the same orders not at all', async ({ page }) => {
   const requests = await openGame(page, (body, n) => allTanks(n <= 2 ? 'advance' : 'retreat')(body));
   await engage(page);
-  await expect.poll(() => spoken(page)).toEqual(['Gemini orders 3 tanks to advance']);
+  await expect.poll(() => spoken(page)).toEqual(['Gemini controls 3 tanks']);
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(2);
   await answerHandled(page);
   await page.clock.runFor(50);
-  expect(await spoken(page)).toEqual(['Gemini orders 3 tanks to advance']);
+  await expect(commsLines(page).filter({ hasText: 'GEMINI' })).toHaveCount(1);
   await skip(page, ASK_EVERY_MS);
-  await expect.poll(() => spoken(page)).toEqual(['Gemini orders 3 tanks to advance', 'Gemini orders 3 tanks to retreat']);
+  await expect.poll(() => requests.length).toBe(3);
+  await answerHandled(page);
+  await expect(commsLines(page).last()).toHaveText('GEMINI: 3 TANKS RETREAT');
+  expect(await spoken(page)).toEqual(['Gemini controls 3 tanks']);
+});
+
+test('a new wave gets its own voice line with the new tank count', async ({ page }) => {
+  const requests = await openGame(page, allTanks('advance'));
+  await engage(page);
+  await expect.poll(() => spoken(page)).toEqual(['Gemini controls 3 tanks']);
+  await nextWave(page);
+  // The voice lines are at least 4 s apart, and the next request is due 5 s after the last one.
+  await skip(page, ASK_EVERY_MS);
+  await expect.poll(() => requests.length).toBe(2);
+  await answerHandled(page);
+  expect(await spoken(page)).toEqual(['Gemini controls 3 tanks', 'Gemini controls 4 tanks']);
 });
 
 test('when the proxy says scripted, the tanks go back to the scripted AI and lose the marker', async ({ page }) => {
@@ -350,7 +365,7 @@ test('one tank given new orders is announced as "1 TANK"', async ({ page }) => {
   await openGame(page, (body) => ({ source: 'gemini', orders: [{ id: body.tanks[0].id, tactic: 'flank_left' }] }));
   await engage(page);
   await expect(commsLines(page).last()).toHaveText('GEMINI: 1 TANK FLANK LEFT');
-  expect(await spoken(page)).toEqual(['Gemini orders a tank to flank left']);
+  expect(await spoken(page)).toEqual(['Gemini controls a tank']);
 });
 
 test('the player heading sent to the proxy stays within -pi..pi after turning past pi', async ({ page }) => {
@@ -405,7 +420,7 @@ test('an answer that arrives while the tab is hidden is dropped, not spoken', as
   await expect.poll(() => requests.length).toBe(2);
   await answerHandled(page);
   await expect.poll(async () => (await enemies(page))[0].tactic).toBe('retreat');
-  expect(await spoken(page)).toEqual(['Gemini orders 3 tanks to retreat']);
+  expect(await spoken(page)).toEqual(['Gemini controls 3 tanks']);
 });
 
 test('if the sign-in token never arrives, the game asks again after 10s; the old request is never sent', async ({ page }) => {
