@@ -62,6 +62,8 @@ const allTanks = (tactic) => (body) => ({ source: 'gemini', orders: body.tanks.m
 const commsLines = (page) => page.locator('#commsFeed .comms-line');
 const spoken = (page) => page.evaluate(() => window.__spoken);
 const radarLabel = (page) => page.locator('#radarLabel');
+// The route has answered, but the page handles the answer asynchronously; wait for that before moving game time on.
+const answerHandled = (page) => expect.poll(async () => (await page.evaluate(() => window.__wirefrontProbe())).geminiInFlight).toBe(false);
 // Starts the next wave the way clearing a wave does (e2e-only hook).
 const nextWave = (page) => page.evaluate(() => window.__wirefrontNextWave());
 
@@ -78,6 +80,7 @@ test('the fight summary goes to the proxy with the sign-in token when play start
 
   await engage(page);
   await expect.poll(() => requests.length).toBe(1);
+  await answerHandled(page);
   const { body, authorization } = requests[0];
   expect(authorization).toBe('Bearer fake-id-token');
   expect(body.wave).toBe(1);
@@ -94,6 +97,7 @@ test('the fight summary goes to the proxy with the sign-in token when play start
   expect(requests).toHaveLength(1);
   await skip(page, 400);
   await expect.poll(() => requests.length).toBe(2);
+  await answerHandled(page);
 });
 
 test('Gemini orders are applied, marked on the tanks, shown on the radar and announced', async ({ page }) => {
@@ -113,6 +117,7 @@ test('the same orders again are not announced again; a change is', async ({ page
   await expect.poll(() => spoken(page)).toEqual(['Gemini orders 3 tanks to advance']);
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(2);
+  await answerHandled(page);
   await page.clock.runFor(50);
   expect(await spoken(page)).toEqual(['Gemini orders 3 tanks to advance']);
   await skip(page, ASK_EVERY_MS);
@@ -136,6 +141,7 @@ test('a too-soon answer keeps the current Gemini orders', async ({ page }) => {
   await expect.poll(async () => (await enemies(page))[0].source).toBe('gemini');
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(2);
+  await answerHandled(page);
   await page.clock.runFor(50);
   expect((await enemies(page)).map((e) => e.source)).toEqual(['gemini', 'gemini', 'gemini']);
 });
@@ -146,8 +152,10 @@ test('if the proxy cannot be reached, the game plays on with the scripted AI and
   const requests = await openGame(page, () => null);
   await engage(page);
   await expect.poll(() => requests.length).toBe(1);
+  await answerHandled(page);
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(2);
+  await answerHandled(page);
   await page.clock.runFor(50);
   expect((await enemies(page)).every((e) => e.source === 'scripted')).toBe(true);
   await expect(page.locator('#radarLabel')).toHaveText('Scan · AI scripted');
@@ -211,6 +219,7 @@ test('hits on the player are reported until Gemini has answered, then counted fr
   const requests = await openGame(page, (body) => (geminiAnswers ? allTanks('advance')(body) : { source: 'scripted', reason: 'daily-limit' }), { seed: 5 });
   await engage(page);
   await expect.poll(() => requests.length).toBe(1);
+  await answerHandled(page);
   // Standing still, enemy fire lands within about 15s of game time.
   for (let i = 0; i < 20 && (await page.locator('.life-glyph.spent').count()) === 0; i++) await page.clock.runFor(1000);
   const hits = await page.locator('.life-glyph.spent').count();
@@ -219,17 +228,21 @@ test('hits on the player are reported until Gemini has answered, then counted fr
   const sent = requests.length;
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(sent + 1);
+  await answerHandled(page);
   expect(requests[sent].body.sinceLastOrders.kills).toBe(hits);
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(sent + 2);
+  await answerHandled(page);
   expect(requests[sent + 1].body.sinceLastOrders.kills).toBe(hits);
   geminiAnswers = true;
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(sent + 3);
+  await answerHandled(page);
   await expect.poll(async () => (await enemies(page))[0].source).toBe('gemini');
   const hitsBefore = await page.locator('.life-glyph.spent').count();
   await skip(page, ASK_EVERY_MS);
   await expect.poll(() => requests.length).toBe(sent + 4);
+  await answerHandled(page);
   const newHits = (await page.locator('.life-glyph.spent').count()) - hitsBefore;
   expect(requests[sent + 3].body.sinceLastOrders.kills).toBe(newHits);
 });
@@ -304,9 +317,8 @@ test('an answer that arrives after a new wave started changes nothing', async ({
   await engage(page);
   await expect.poll(() => requests.length).toBe(1);
   await nextWave(page);
-  const answered = page.waitForResponse(PROXY);
   release();
-  await answered;
+  await answerHandled(page);
   await page.clock.runFor(50);
   expect((await enemies(page)).map((e) => [e.source, e.marker])).toEqual(Array(4).fill(['scripted', false]));
   await expect(radarLabel(page)).toHaveText('Scan · AI scripted');
@@ -339,6 +351,7 @@ test('the player heading sent to the proxy stays within -pi..pi after turning pa
   await page.clock.runFor(2500);
   await page.keyboard.up('a');
   await expect.poll(() => requests.length).toBe(2);
+  await answerHandled(page);
   const rawYaw = (await page.evaluate(() => window.__wirefrontProbe())).yaw;
   expect(rawYaw).toBeGreaterThan(Math.PI);
   const sentYaw = requests[1].body.player.yaw;
@@ -368,30 +381,53 @@ test('answers with no orders do not keep old Gemini orders fresh: the tanks stil
 test('an answer that arrives while the tab is hidden is dropped, not spoken', async ({ page }) => {
   let release;
   const held = new Promise((resolve) => { release = resolve; });
-  const requests = await openGame(page, (body) => held.then(() => allTanks('flank_left')(body)));
+  const requests = await openGame(page, (body, n) => (n === 1 ? held.then(() => allTanks('flank_left')(body)) : allTanks('retreat')(body)));
   await engage(page);
   await expect.poll(() => requests.length).toBe(1);
   await page.evaluate(() => { window.__hidden = true; });
-  const answered = page.waitForResponse(PROXY);
   release();
-  await answered;
+  await answerHandled(page);
   await page.clock.runFor(50);
-  expect(await spoken(page)).toEqual([]);
-  expect((await enemies(page)).every((e) => e.source === 'scripted')).toBe(true);
+  // Back in view, the next answer is applied. Requests run one at a time, so the hidden one was handled before it.
+  await page.evaluate(() => { window.__hidden = false; });
+  await skip(page, ASK_EVERY_MS);
+  await expect.poll(() => requests.length).toBe(2);
+  await answerHandled(page);
+  await expect.poll(async () => (await enemies(page))[0].tactic).toBe('retreat');
+  expect(await spoken(page)).toEqual(['Gemini orders 3 tanks to retreat']);
 });
 
-test('if the sign-in token never arrives, the game asks again after 10s', async ({ page }) => {
-  const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
+test('if the sign-in token never arrives, the game asks again after 10s; the old request is never sent', async ({ page }) => {
+  const requests = await openGame(page, allTanks('advance'));
   await page.evaluate(() => {
     const original = firebase.auth().currentUser.getIdToken;
     let calls = 0;
-    firebase.auth().currentUser.getIdToken = () => (calls++ === 0 ? new Promise(() => {}) : original());
+    // The first token arrives only when the test calls __releaseFirstToken.
+    firebase.auth().currentUser.getIdToken = () => (calls++ === 0
+      ? new Promise((resolve) => { window.__releaseFirstToken = () => resolve('late-token'); })
+      : original());
   });
   await engage(page);
   await skip(page, 9500);
   expect(requests).toHaveLength(0);
   await skip(page, 1000);
   await expect.poll(() => requests.length).toBe(1);
+  await page.evaluate(() => window.__releaseFirstToken());
+  await skip(page, 2000);
+  expect(requests.map((request) => request.authorization)).toEqual(['Bearer fake-id-token']);
+});
+
+test('a request still open at game over does not hold up the next game', async ({ page }) => {
+  test.setTimeout(120000);
+  // The proxy never answers, as if it hung: at game over a request is still open.
+  const requests = await openGame(page, () => new Promise(() => {}), { seed: 3 });
+  await engage(page);
+  await playUntilGameOver(page);
+  const sent = requests.length;
+  await page.locator('#retryBtn').click();
+  // The new game asks on its 5s cycle, without waiting out the 10s give-up on the old request.
+  await skip(page, ASK_EVERY_MS);
+  await expect.poll(() => requests.length).toBe(sent + 1);
 });
 
 test('after the e2e next-wave hook was used, the score is not saved to the leaderboard', async ({ page }) => {

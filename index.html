@@ -1378,9 +1378,12 @@
   var TACTIC_WORDS = { flank_left:'flank left', flank_right:'flank right', hold_and_suppress:'hold and suppress', advance:'advance', retreat:'retreat' };
   // Tuned by eye in play, not measured. ADVANCE_STOP is the scripted AI's old stop distance.
   var FLANK_RADIUS = 24, FLANK_SWING = 0.9, HOLD_RANGE = 45, RETREAT_RANGE = 55, ADVANCE_STOP = 16;
-  var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0 };
+  // requestNumber: only the latest request may act; an older one finishing late (after a give-up or a new game) is ignored.
+  var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0, requestNumber:0 };
   // lastAskAt survives a new game on purpose: the proxy answers 'too-soon' to calls under 4s apart.
   function resetGeminiForNewGame(){
+    gemini.requestNumber += 1;
+    gemini.inFlight = false;
     gemini.lastOrdersAt = -Infinity;
     gemini.playerHits = 0;
     gemini.tanksLost = 0;
@@ -1462,7 +1465,11 @@
       sinceLastOrders: { kills: Math.min(gemini.playerHits, 99), losses: Math.min(gemini.tanksLost, 99) },
     };
     gemini.inFlight = true;
+    var requestNumber = ++gemini.requestNumber;
+    function isLatest(){ return requestNumber === gemini.requestNumber; }
     user.getIdToken().then(function(token){
+      // Superseded while waiting for the token: do not send, so Gemini is not billed for an old summary.
+      if (!isLatest()) throw new Error('superseded');
       return fetch(GEMINI_PROXY_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
@@ -1471,6 +1478,9 @@
       });
     }).then(function(response){ return response.json(); })
       .then(function(answer){
+        // A late answer from the last game would wrongly clear hits counted in the new one. No e2e test reaches
+        // this: it needs a hit within the 6s fetch timeout after Retry.
+        if (!isLatest()) return;
         // The counts reached Gemini only if it answered; otherwise they go out again with the next request.
         if (answer && answer.source === 'gemini'){
           gemini.playerHits = Math.max(gemini.playerHits - summary.sinceLastOrders.kills, 0);
@@ -1480,7 +1490,7 @@
       })
       // Proxy unreachable or slow: the tanks keep their current tactics and go scripted once orders go stale.
       .catch(function(){})
-      .then(function(){ gemini.inFlight = false; });
+      .then(function(){ if (isLatest()) gemini.inFlight = false; });
   }
 
   function applyGeminiAnswer(answer){
@@ -1882,7 +1892,7 @@
   if (testParams.has('e2e')){
     window.__wirefrontProbe = function(){
       return {
-        state: G.state, x: player.x, z: player.z, yaw: player.yaw, playerShots: pShots.length, bloom: !!composer,
+        state: G.state, x: player.x, z: player.z, yaw: player.yaw, playerShots: pShots.length, bloom: !!composer, geminiInFlight: gemini.inFlight,
         enemies: enemies.filter(function(e){ return e.alive; }).map(function(e){
           return { id: e.id, tactic: e.tactic, source: e.tacticSource, marker: !!(e.geminiMarker && e.geminiMarker.visible),
             dist: Math.hypot(e.x - player.x, e.z - player.z), bearing: Math.atan2(e.x - player.x, e.z - player.z) };
