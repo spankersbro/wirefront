@@ -76,26 +76,25 @@ test('obstacles are drawn on the radar where they are, at their size', async ({ 
   expect(amberPixels).toBeGreaterThan(3);
 });
 
-test('a tank that cannot see the player does not fire; with a clear line it does', async ({ browser }) => {
-  const shots = {};
-  for (const blocked of [true, false]) {
-    const page = await browser.newPage();
-    await openGame(page);
-    await arrange(page, {
-      obstacles: blocked ? [{ x: 0, z: -15, r: 4 }] : [],
-      enemies: [{ x: 0, z: -30, speed: 0, yaw: Math.PI }],
-    });
-    // Enemy tanks fire every 2-4 s while they can see the player; 8 s is at least two shots.
-    let fired = 0;
-    for (let i = 0; i < 80; i++) {
-      await page.clock.runFor(100);
-      fired = Math.max(fired, (await probe(page)).enemyShots);
-    }
-    shots[blocked ? 'blocked' : 'clear'] = fired;
-    await page.close();
+// Enemy tanks fire every 2-4 s while they can see the player, so 8 s is at least two shots.
+// A shot lives 4.5 s, so sampling every 0.5 s cannot miss one. Returns the most shots seen in flight at once.
+async function shotsFiredIn8s(page, obstacles) {
+  await openGame(page);
+  await arrange(page, { obstacles, enemies: [{ x: 0, z: -30, speed: 0, yaw: Math.PI }] });
+  let fired = 0;
+  for (let i = 0; i < 16; i++) {
+    await page.clock.runFor(500);
+    fired = Math.max(fired, (await probe(page)).enemyShots);
   }
-  expect(shots.blocked).toBe(0);
-  expect(shots.clear).toBeGreaterThan(0);
+  return fired;
+}
+
+test('a tank that cannot see the player does not fire', async ({ page }) => {
+  expect(await shotsFiredIn8s(page, [{ x: 0, z: -15, r: 4 }])).toBe(0);
+});
+
+test('the same tank with a clear line to the player fires', async ({ page }) => {
+  expect(await shotsFiredIn8s(page, [])).toBeGreaterThan(0);
 });
 
 test('a tank that cannot see the player drives to where it last saw the player, not to the player', async ({ page }) => {
