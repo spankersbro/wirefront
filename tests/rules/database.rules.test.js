@@ -126,11 +126,23 @@ test('any other two words are refused, even in the old name format', async () =>
 // Reads the lists out of index.html on purpose: this guards against the game and the rule drifting apart.
 test('every callsign the game can generate is accepted', async () => {
   const html = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
-  const list = (varName) => JSON.parse(html.match(new RegExp(`var ${varName} = (\\[[^\\]]*\\]);`))[1].replace(/'/g, '"'));
+  const list = (varName) => {
+    const found = html.match(new RegExp(`var ${varName} = (\\[[^\\]]*\\]);`));
+    assert.ok(found, `${varName} not found in index.html; update this parser and the name rule`);
+    return JSON.parse(found[1].replace(/'/g, '"'));
+  };
   const adjectives = list('CALLSIGN_ADJ');
   const nouns = list('CALLSIGN_NOUN');
   assert.equal(adjectives.length * nouns.length, 225);
   for (const adjective of adjectives) {
     for (const noun of nouns) await assertSucceeds(writeName(`${adjective} ${noun}`));
   }
+});
+
+test('an entry written before the name rule cannot be kept alive by updating other fields', async () => {
+  const { update } = require('firebase/database');
+  await seed(ALICE, presence({ name: 'HELLO WORLD', t: Date.now() }));
+  await assertFails(update(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), { x: 3, t: serverTimestamp() }));
+  await assertFails(set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}/x`), 7));
+  await assertSucceeds(set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), presence()));
 });
