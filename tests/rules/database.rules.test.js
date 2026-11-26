@@ -104,3 +104,33 @@ test('the room is still readable without signing in', async () => {
   await seed(ALICE, presence());
   await assertSucceeds(get(ref(dbAs(null), PLAYERS)));
 });
+
+// WF-13: callsigns are read aloud to every player, so the rule allows only the game's own words.
+function writeName(name) {
+  return set(ref(dbAs('alice'), `${PLAYERS}/${ALICE}`), presence({ name }));
+}
+
+test('a callsign made of one adjective and one noun from the game is accepted', async () => {
+  await assertSucceeds(writeName('GHOST HAWK'));
+  await assertSucceeds(writeName('SILENT FALCON'));
+  await assertSucceeds(writeName('VOID FOX'));
+});
+
+test('any other two words are refused, even in the old name format', async () => {
+  for (const name of ['HELLO WORLD', 'WOLF IRON', 'IRON IRON', 'XIRON WOLF', 'IRONX WOLF', 'IRON XWOLF', 'IRON WOLFX',
+    'IRON  WOLF', 'IRON WOLF ', ' IRON WOLF', 'iron wolf', 'IRON', 'IRON WOLF FOX', '']) {
+    await assertFails(writeName(name), `expected "${name}" to be refused`);
+  }
+});
+
+// Reads the lists out of index.html on purpose: this guards against the game and the rule drifting apart.
+test('every callsign the game can generate is accepted', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
+  const list = (varName) => JSON.parse(html.match(new RegExp(`var ${varName} = (\\[[^\\]]*\\]);`))[1].replace(/'/g, '"'));
+  const adjectives = list('CALLSIGN_ADJ');
+  const nouns = list('CALLSIGN_NOUN');
+  assert.equal(adjectives.length * nouns.length, 225);
+  for (const adjective of adjectives) {
+    for (const noun of nouns) await assertSucceeds(writeName(`${adjective} ${noun}`));
+  }
+});
