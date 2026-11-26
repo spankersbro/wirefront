@@ -155,6 +155,7 @@
   }
   .comms-line.show{ opacity:1; transform:translateY(0); }
   .comms-line.leave{ color:var(--amber); border-color:#5c3c10; text-shadow:0 0 6px rgba(255,176,32,.6); }
+  .comms-line.gemini{ color:#ff9cf0; border-color:#6b1a5e; text-shadow:0 0 6px rgba(255,61,220,.7); }
 
   .damage-flash{
     position:fixed; inset:0; z-index:6; pointer-events:none;
@@ -268,7 +269,7 @@
 
   <div class="radar-wrap">
     <div class="radar-frame"><canvas id="radar" width="132" height="132"></canvas></div>
-    <span class="radar-label">Scan</span>
+    <span class="radar-label" id="radarLabel">Scan · AI scripted</span>
   </div>
 
   <div class="reticle"><div class="dot"></div></div>
@@ -822,7 +823,10 @@
     mesh.position.set(x, 0, z);
     scene.add(mesh);
     var speed = (3.2 + Math.random()*1.2 + (G.wave-1)*0.35) * variant.speedMul;
+    // 't' + at most 7 digits: the proxy accepts ids of 1-8 characters [a-z0-9] and rejects the whole request otherwise.
+    enemyIdCounter = enemyIdCounter % 9999999 + 1;
     enemies.push({
+      id: 't' + enemyIdCounter, tactic: 'advance', tacticSource: 'scripted', geminiMarker: null,
       mesh: mesh, x:x, z:z, yaw:0, hp:variant.hp, variant:variant,
       speed: Math.min(speed, 8.5),
       fireCd: (1.5+Math.random()*2) / variant.fireMul,
@@ -1220,6 +1224,7 @@
     ensureAudio(); resumeAudio();
     G.score = 0; G.wave = 1; G.lives = 3;
     resetPlayer();
+    resetGeminiForNewGame();
     pShots.forEach(function(s){ scene.remove(s.mesh); }); pShots = [];
     eShots.forEach(function(s){ scene.remove(s.mesh); }); eShots = [];
     particles.forEach(function(p){ scene.remove(p.mesh); }); particles = [];
@@ -1241,6 +1246,7 @@
   function playerHit(){
     if (G.invuln > 0) return;
     G.lives -= 1;
+    gemini.playerHits += 1;
     G.invuln = 2.0;
     playHit();
     addShake(0.9);
@@ -1257,6 +1263,7 @@
 
   function gameOver(){
     G.state = 'gameover';
+    useScriptedTactics();
     document.getElementById('finalScore').textContent = G.score;
     document.getElementById('finalWave').textContent = 'Reached wave ' + G.wave;
     initialsStep.style.display = '';
@@ -1327,13 +1334,17 @@
       if (!e.alive) return;
       var dx = player.x-e.x, dz = player.z-e.z;
       var dist = Math.sqrt(dx*dx+dz*dz);
+      // Without a move target the tank turns to face the player; with one it turns towards the target.
+      var moveTo = tacticMoveTarget(e, dist);
+      var aimX = moveTo ? moveTo.x - e.x : dx, aimZ = moveTo ? moveTo.z - e.z : dz;
+      var steerYaw = Math.atan2(-aimX, -aimZ);
+      var steerDiff = ((steerYaw - e.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
+      var turnRate = 1.1;
+      if (Math.abs(steerDiff) > 0.03) e.yaw += Math.sign(steerDiff)*Math.min(Math.abs(steerDiff), turnRate*dt);
       var targetYaw = Math.atan2(-dx,-dz);
       var diff = ((targetYaw - e.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
-      var turnRate = 1.1;
-      if (Math.abs(diff) > 0.03) e.yaw += Math.sign(diff)*Math.min(Math.abs(diff), turnRate*dt);
 
-      var engage = dist > 16;
-      if (engage){
+      if (moveTo){
         var fwd = forwardOf(e.yaw);
         e.x += fwd.x*e.speed*dt;
         e.z += fwd.z*e.speed*dt;
@@ -1346,11 +1357,174 @@
       if (e.fireCd <= 0 && dist < 70 && Math.abs(diff) < 0.6){
         fireEnemyShot(e);
         e.fireCd = 2.2 + Math.random()*2 - Math.min(G.wave*0.12, 1.4);
+        // Tuned by eye: holding tanks fire about 40% more often, the point of suppressing.
+        if (e.tactic === 'hold_and_suppress') e.fireCd *= 0.7;
       }
 
       e.mesh.position.set(e.x, 0, e.z);
       e.mesh.rotation.y = e.yaw;
+      if (e.geminiMarker) e.geminiMarker.rotation.y += dt*2.5;
     });
+  }
+
+  /* ════════ enemy tactics: Gemini via the proxy (WF-24/25), scripted 'advance' otherwise ════════ */
+  var GEMINI_PROXY_URL = 'https://wirefront-gemini-proxy-690237862698.europe-west1.run.app/tactics';
+  var GEMINI_ASK_EVERY_S = 5;
+  var GEMINI_REQUEST_TIMEOUT_MS = 6000;
+  // Tanks count as Gemini-driven only while Gemini's last orders are this fresh.
+  var GEMINI_ORDERS_FRESH_S = 12;
+  // A request still open after this long is given up (a sign-in token that never arrives has no timeout).
+  var GEMINI_GIVE_UP_AFTER_S = 10;
+  var TACTIC_WORDS = { flank_left:'flank left', flank_right:'flank right', hold_and_suppress:'hold and suppress', advance:'advance', retreat:'retreat' };
+  // Tuned by eye in play, not measured. ADVANCE_STOP is the scripted AI's old stop distance.
+  var FLANK_RADIUS = 24, FLANK_SWING = 0.9, HOLD_RANGE = 45, RETREAT_RANGE = 55, ADVANCE_STOP = 16;
+  // requestNumber: only the latest request may act; an older one finishing late (after a give-up or a new game) is ignored.
+  var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0, requestNumber:0 };
+  // lastAskAt survives a new game on purpose: the proxy answers 'too-soon' to calls under 4s apart.
+  function resetGeminiForNewGame(){
+    gemini.requestNumber += 1;
+    gemini.inFlight = false;
+    gemini.lastOrdersAt = -Infinity;
+    gemini.playerHits = 0;
+    gemini.tanksLost = 0;
+  }
+  var enemyIdCounter = 0;
+  var scoreSavingBlocked = false;
+  var radarLabel = document.getElementById('radarLabel');
+
+  // The point a tank drives towards for its tactic, or null to stay put.
+  function tacticMoveTarget(e, dist){
+    var px = player.x, pz = player.z;
+    if (e.tactic === 'flank_left' || e.tactic === 'flank_right'){
+      var bearing = Math.atan2(e.x-px, e.z-pz) + (e.tactic === 'flank_left' ? FLANK_SWING : -FLANK_SWING);
+      return { x: px + Math.sin(bearing)*FLANK_RADIUS, z: pz + Math.cos(bearing)*FLANK_RADIUS };
+    }
+    if (e.tactic === 'hold_and_suppress') return dist > HOLD_RANGE ? { x:px, z:pz } : null;
+    if (e.tactic === 'retreat') return dist < RETREAT_RANGE ? { x: e.x + (e.x-px), z: e.z + (e.z-pz) } : null;
+    return dist > ADVANCE_STOP ? { x:px, z:pz } : null;
+  }
+
+  function setGeminiMarker(e, on){
+    if (on && !e.geminiMarker){
+      var marker = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.OctahedronGeometry(0.32)),
+        new THREE.LineBasicMaterial({ color: WHITE_HOT }));
+      marker.position.y = 2.4;
+      e.mesh.add(marker);
+      e.geminiMarker = marker;
+    }
+    if (e.geminiMarker) e.geminiMarker.visible = on;
+  }
+
+  function useScriptedTactics(){
+    enemies.forEach(function(e){
+      if (e.tacticSource !== 'gemini') return;
+      e.tactic = 'advance';
+      e.tacticSource = 'scripted';
+      setGeminiMarker(e, false);
+    });
+    gemini.lastOrdersAt = -Infinity;
+  }
+
+  function currentUser(){
+    // firebase.auth() throws every frame if initializeApp failed; then there is simply no Gemini.
+    try {
+      return (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) || null;
+    } catch (error){
+      return null;
+    }
+  }
+
+  function setRadarLabel(text){
+    if (radarLabel.textContent !== text) radarLabel.textContent = text;
+  }
+
+  function updateGeminiTactics(nowS){
+    var geminiDriving = nowS - gemini.lastOrdersAt < GEMINI_ORDERS_FRESH_S;
+    if (!geminiDriving && gemini.lastOrdersAt !== -Infinity) useScriptedTactics();
+    // Only claim Gemini while a live tank actually follows its orders (a new wave or game starts scripted).
+    var anyGeminiTank = enemies.some(function(e){ return e.alive && e.tacticSource === 'gemini'; });
+    setRadarLabel(anyGeminiTank ? 'Scan · AI Gemini' : 'Scan · AI scripted');
+    if (G.state !== 'playing' || document.visibilityState !== 'visible') return;
+    if (gemini.inFlight && nowS - gemini.lastAskAt < GEMINI_GIVE_UP_AFTER_S) return;
+    if (nowS - gemini.lastAskAt < GEMINI_ASK_EVERY_S) return;
+    var alive = enemies.filter(function(e){ return e.alive; });
+    var user = currentUser();
+    if (!alive.length || !user) return;
+    gemini.lastAskAt = nowS;
+    askGeminiForTactics(user, alive.slice(0, 10));
+  }
+
+  function askGeminiForTactics(user, tanks){
+    var summary = {
+      wave: G.wave,
+      // player.yaw grows without bound while turning; the proxy rejects |yaw| > 100.
+      player: { yaw: Math.atan2(Math.sin(player.yaw), Math.cos(player.yaw)), lives: Math.max(G.lives, 0) },
+      tanks: tanks.map(function(e){
+        return { id: e.id, variant: e.variant.name, dx: e.x - player.x, dz: e.z - player.z, hp: Math.max(e.hp, 0) };
+      }),
+      sinceLastOrders: { kills: Math.min(gemini.playerHits, 99), losses: Math.min(gemini.tanksLost, 99) },
+    };
+    gemini.inFlight = true;
+    var requestNumber = ++gemini.requestNumber;
+    function isLatest(){ return requestNumber === gemini.requestNumber; }
+    user.getIdToken().then(function(token){
+      // Superseded while waiting for the token: do not send, so Gemini is not billed for an old summary.
+      if (!isLatest()) throw new Error('superseded');
+      return fetch(GEMINI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+        body: JSON.stringify(summary),
+        signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
+      });
+    }).then(function(response){ return response.json(); })
+      .then(function(answer){
+        // A late answer from the last game would wrongly clear hits counted in the new one. No e2e test reaches
+        // this: it needs a hit within the 6s fetch timeout after Retry.
+        if (!isLatest()) return;
+        // The counts reached Gemini only if it answered; otherwise they go out again with the next request.
+        if (answer && answer.source === 'gemini'){
+          gemini.playerHits = Math.max(gemini.playerHits - summary.sinceLastOrders.kills, 0);
+          gemini.tanksLost = Math.max(gemini.tanksLost - summary.sinceLastOrders.losses, 0);
+        }
+        applyGeminiAnswer(answer);
+      })
+      // Proxy unreachable or slow: the tanks keep their current tactics and go scripted once orders go stale.
+      .catch(function(){})
+      .then(function(){ if (isLatest()) gemini.inFlight = false; });
+  }
+
+  function applyGeminiAnswer(answer){
+    // Not while the tab is hidden: the order would be spoken, then dropped as stale on return.
+    if (!answer || G.state !== 'playing' || document.visibilityState !== 'visible') return;
+    if (answer.source !== 'gemini'){
+      // 'too-soon' only means we asked early; any other reason means no Gemini for now.
+      if (answer.reason !== 'too-soon') useScriptedTactics();
+      return;
+    }
+    var changed = {}, applied = 0;
+    (answer.orders || []).forEach(function(order){
+      var e = enemies.find(function(x){ return x.alive && x.id === order.id; });
+      if (!e || !TACTIC_WORDS[order.tactic]) return;
+      if (e.tactic !== order.tactic || e.tacticSource !== 'gemini') changed[order.tactic] = (changed[order.tactic] || 0) + 1;
+      e.tactic = order.tactic;
+      e.tacticSource = 'gemini';
+      setGeminiMarker(e, true);
+      applied += 1;
+    });
+    // Orders for tanks that are gone (an earlier wave or game) or no orders at all leave the tanks scripted.
+    if (!applied) return;
+    gemini.lastOrdersAt = clock.elapsedTime;
+    announceGeminiOrders(changed);
+  }
+
+  // Announces the most common new order, e.g. "GEMINI: 3 TANKS FLANK LEFT".
+  function announceGeminiOrders(changed){
+    var tactic = null;
+    Object.keys(changed).forEach(function(t){ if (!tactic || changed[t] > changed[tactic]) tactic = t; });
+    if (!tactic) return;
+    var count = changed[tactic], words = TACTIC_WORDS[tactic];
+    showCommsLine('GEMINI: ' + count + (count === 1 ? ' TANK ' : ' TANKS ') + words.toUpperCase(), 'gemini');
+    playCommsAudio(playCommsJoin, 'Gemini orders ' + (count === 1 ? 'a tank' : count + ' tanks') + ' to ' + words);
   }
 
   function updateShots(dt){
@@ -1371,6 +1545,7 @@
             return;
           }
           e.alive = false;
+          gemini.tanksLost += 1;
           scene.remove(e.mesh);
           spawnParticles(e.x, 1, e.z, e.variant ? e.variant.color : PHOS, 16);
           playExplosion();
@@ -1457,7 +1632,7 @@
     var initials = raw.toUpperCase().replace(/[^A-Z]/g,'').slice(0,3) || 'ACE';
     if (BLOCKED_INITIALS.indexOf(initials) > -1){ showInitialsError(true); return; }
     playBlip();
-    if (db){
+    if (db && !scoreSavingBlocked){
       db.collection('scores').add({ initials: initials, score: G.score, wave: G.wave, ts: Date.now() }).catch(function(){});
     }
     initialsStep.style.display = 'none';
@@ -1577,20 +1752,24 @@
       ? names[0] + ' ' + (isJoin ? 'ON GRID' : 'OFFLINE')
       : names.length + ' PILOTS ' + (isJoin ? 'ON GRID' : 'OFFLINE');
     showCommsLine(lineText, kind);
-
-    if (commsMuted) return;
-    var now = performance.now();
-    if (now - lastAnnounceAudioAt < ANNOUNCE_MIN_AUDIO_GAP_MS) return;
-    lastAnnounceAudioAt = now;
-    if (isJoin) playCommsJoin(); else playCommsLeave();
-    speakAnnouncement(names.length === 1
+    playCommsAudio(isJoin ? playCommsJoin : playCommsLeave, names.length === 1
       ? names[0] + (isJoin ? ' has entered the field' : ' has left the field')
       : names.length + ' pilots have ' + (isJoin ? 'entered the field' : 'left the field'));
   }
 
+  // Chime plus voice line, unless muted or another voice line played in the last 4s.
+  function playCommsAudio(chime, speech){
+    if (commsMuted) return;
+    var now = performance.now();
+    if (now - lastAnnounceAudioAt < ANNOUNCE_MIN_AUDIO_GAP_MS) return;
+    lastAnnounceAudioAt = now;
+    chime();
+    speakAnnouncement(speech);
+  }
+
   function showCommsLine(text, kind){
     var line = document.createElement('div');
-    line.className = 'comms-line' + (kind === 'leave' ? ' leave' : '');
+    line.className = 'comms-line' + (kind === 'leave' || kind === 'gemini' ? ' ' + kind : '');
     line.textContent = text;
     commsFeed.appendChild(line);
     requestAnimationFrame(function(){ line.classList.add('show'); });
@@ -1655,6 +1834,7 @@
     }
     drawRadar(dt);
     updateGridPulse(time);
+    updateGeminiTactics(time);
     if (composer) composer.render(); else renderer.render(scene, camera);
   }
 
@@ -1711,8 +1891,17 @@
   // Read-only state for the Playwright suite (WF-11). Only with ?e2e, so normal players get no global.
   if (testParams.has('e2e')){
     window.__wirefrontProbe = function(){
-      return { state: G.state, x: player.x, z: player.z, yaw: player.yaw, playerShots: pShots.length, bloom: !!composer };
+      return {
+        state: G.state, x: player.x, z: player.z, yaw: player.yaw, playerShots: pShots.length, bloom: !!composer, geminiInFlight: gemini.inFlight,
+        enemies: enemies.filter(function(e){ return e.alive; }).map(function(e){
+          return { id: e.id, tactic: e.tactic, source: e.tacticSource, marker: !!(e.geminiMarker && e.geminiMarker.visible),
+            dist: Math.hypot(e.x - player.x, e.z - player.z), bearing: Math.atan2(e.x - player.x, e.z - player.z) };
+        }),
+      };
     };
+    // The one e2e hook that changes state: starts the next wave the way clearing a wave does (WF-25 tests).
+    // Anyone can add ?e2e, so a tab that used it never saves a score to the public leaderboard.
+    window.__wirefrontNextWave = function(){ scoreSavingBlocked = true; nextWave(); };
   }
 
   boot();
