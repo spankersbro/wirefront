@@ -7,7 +7,14 @@ const RADAR_CENTRE = 66;
 const RADAR_PX_PER_UNIT = 66 / 170; // radar radius in px / world radius
 const FULL_SWEEP_MS = 3300; // the sweep turns 2 rad/s, one turn is about 3.14 s
 
-async function openGame(page) {
+async function openGame(page, { seed } = {}) {
+  if (seed !== undefined) {
+    // Same seed, same random search spots: a test can then rely on what a random pick would have done.
+    await page.addInitScript((seed) => {
+      let state = seed;
+      Math.random = () => ((state = (state * 1664525 + 1013904223) % 4294967296) / 4294967296);
+    }, seed);
+  }
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   await page.route(/gstatic\.com\/firebasejs|firebaseio\.com|googleapis\.com|run\.app/, (route) => route.abort());
   await page.goto('/index.html?e2e');
@@ -194,7 +201,8 @@ async function searchSpotsWhile(page, id, ms) {
 }
 
 test('search spots stay around the last sighting and clear of obstacles', async ({ page }) => {
-  await openGame(page);
+  // Seeded: unseeded, a spot check without obstacles passed about 4% of runs and a random walk about 10%.
+  await openGame(page, { seed: 1 });
   // Last seen at (0, -80). Four obstacles on the 15-30 unit ring round it, plus one hiding the player.
   const ring = [[22, -80], [-22, -80], [0, -58], [0, -102]].map(([x, z]) => ({ x, z, r: 5 }));
   const [tank] = await arrange(page, {
