@@ -168,3 +168,101 @@ test('every batch waits its own full window, even right after an earlier batch',
   await page.clock.runFor(1);
   await expect(commsLines(page).last()).toHaveText('LONE FOX ON GRID');
 });
+
+// WF-4: a mute toggle for the join/leave chime and voice. The comms line still shows.
+const commsToggle = (page) => page.locator('#commsToggle');
+
+async function engage(page) {
+  await page.locator('#startBtn').click();
+  await expect(page.locator('#titleOverlay')).toBeHidden();
+}
+
+test('comms are on by default; clicking the toggle mutes the voice but keeps the line', async ({ page }) => {
+  await openRoom(page);
+  await engage(page);
+  await expect(commsToggle(page)).toHaveText('COMMS');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'Mute comms' })).toBeVisible();
+
+  await commsToggle(page).click();
+  await expect(commsToggle(page)).toHaveText('MUTED');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect(commsToggle(page)).not.toBeFocused();
+  await join(page, 'p1', 'IRON WOLF');
+  await page.clock.runFor(BATCH_MS);
+  await expect(commsLines(page)).toHaveText(['IRON WOLF ON GRID']);
+  expect(await spoken(page)).toEqual([]);
+});
+
+test('M toggles mute; a muted batch does not hold back the next voice line', async ({ page }) => {
+  await openRoom(page);
+  await page.keyboard.press('m');
+  await join(page, 'p1', 'IRON WOLF');
+  await page.clock.runFor(BATCH_MS);
+  expect(await spoken(page)).toEqual([]);
+
+  await page.keyboard.press('m');
+  await expect(commsToggle(page)).toHaveText('COMMS');
+  await join(page, 'p2', 'GHOST HAWK');
+  await page.clock.runFor(BATCH_MS);
+  expect(await spoken(page)).toEqual(['GHOST HAWK has entered the field']);
+});
+
+test('muting stops a voice line that is already playing', async ({ page }) => {
+  await openRoom(page);
+  await page.evaluate(() => {
+    window.__cancels = 0;
+    speechSynthesis.cancel = () => { window.__cancels += 1; };
+  });
+  await join(page, 'p1', 'IRON WOLF');
+  await page.clock.runFor(BATCH_MS);
+  const cancelsBeforeMute = await page.evaluate(() => window.__cancels);
+  await page.keyboard.press('m');
+  expect(await page.evaluate(() => window.__cancels)).toBe(cancelsBeforeMute + 1);
+  await page.keyboard.press('m');
+  expect(await page.evaluate(() => window.__cancels)).toBe(cancelsBeforeMute + 1);
+});
+
+test('holding M down does not keep toggling', async ({ page }) => {
+  await openRoom(page);
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', repeat: true }));
+  });
+  await expect(commsToggle(page)).toHaveText('MUTED');
+});
+
+test('M typed into the initials field does not toggle mute', async ({ page }) => {
+  await openRoom(page);
+  await page.evaluate(() => {
+    document.getElementById('initials').dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+  });
+  await expect(commsToggle(page)).toHaveText('COMMS');
+});
+
+test('mute is remembered after a reload', async ({ page }) => {
+  await openRoom(page);
+  await page.keyboard.press('m');
+  await page.reload();
+  await expect(commsToggle(page)).toHaveText('MUTED');
+  await page.evaluate(() => window.__fakeRtdb.finishInitialLoad());
+  await join(page, 'p1', 'IRON WOLF');
+  await page.clock.runFor(BATCH_MS);
+  await expect(commsLines(page)).toHaveText(['IRON WOLF ON GRID']);
+  expect(await spoken(page)).toEqual([]);
+});
+
+test('without storage, comms start on and mute still works for the session', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('blocked', 'SecurityError'); } });
+  });
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await openRoom(page);
+  await expect(commsToggle(page)).toHaveText('COMMS');
+  await page.keyboard.press('m');
+  await join(page, 'p1', 'IRON WOLF');
+  await page.clock.runFor(BATCH_MS);
+  expect(await spoken(page)).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});

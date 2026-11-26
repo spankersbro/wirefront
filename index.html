@@ -84,6 +84,12 @@
   .lives-row{ display:flex; gap:.3rem; justify-content:flex-end; margin-top:.2rem; }
   .life-glyph{ width:14px; height:9px; border:1.5px solid var(--phosphor); border-radius:1px; opacity:.9; }
   .life-glyph.spent{ opacity:.18; border-color: var(--phosphor-dim); }
+  .comms-toggle{
+    display:block; margin:.45rem 0 0 auto; pointer-events:auto; cursor:pointer;
+    font-family:'Share Tech Mono',monospace; font-size:.62rem; letter-spacing:.1em;
+    background:transparent; color:var(--phosphor); border:1px solid var(--phosphor-dim); padding:.2rem .45rem;
+  }
+  .comms-toggle[aria-pressed="true"]{ color:var(--amber); border-color:var(--amber); }
 
   .radar-wrap{
     position:absolute; top:12px; left:50%; transform:translateX(-50%);
@@ -250,6 +256,7 @@
   <div class="panel hud-status">
     <span class="panel-label">Wave <span id="waveVal">1</span></span>
     <div class="lives-row" id="livesRow"></div>
+    <button class="comms-toggle" id="commsToggle" aria-pressed="false" aria-label="Mute comms" title="Mute join/leave sounds and voice (M)">COMMS</button>
   </div>
 
   <div class="radar-wrap">
@@ -264,7 +271,7 @@
   <div class="comms-feed" id="commsFeed" aria-live="polite"></div>
 
   <div class="hint-bar" id="hintBar">
-    <span class="desktop-only">◄►/A D turn &nbsp;·&nbsp; ▲▼/W S throttle &nbsp;·&nbsp; SPACE fire</span>
+    <span class="desktop-only">◄►/A D turn &nbsp;·&nbsp; ▲▼/W S throttle &nbsp;·&nbsp; SPACE fire &nbsp;·&nbsp; M mute comms</span>
     <span class="touch-only">LEFT STICK: drive &nbsp;·&nbsp; RIGHT PAD: fire</span>
   </div>
 
@@ -968,6 +975,28 @@
     }catch(e){ speechReady = false; }
   }
 
+  var COMMS_MUTED_KEY = 'wirefront.commsMuted';
+  var commsToggle = document.getElementById('commsToggle');
+  var commsMuted = false;
+  try{ commsMuted = localStorage.getItem(COMMS_MUTED_KEY) === '1'; }catch(e){}
+  showCommsMuted();
+
+  function showCommsMuted(){
+    commsToggle.setAttribute('aria-pressed', String(commsMuted));
+    commsToggle.textContent = commsMuted ? 'MUTED' : 'COMMS';
+  }
+  function toggleCommsMuted(){
+    commsMuted = !commsMuted;
+    try{ localStorage.setItem(COMMS_MUTED_KEY, commsMuted ? '1' : '0'); }catch(e){}
+    if (commsMuted && speechReady) window.speechSynthesis.cancel();
+    showCommsMuted();
+  }
+  commsToggle.addEventListener('click', function(ev){
+    toggleCommsMuted();
+    // A mouse click leaves focus on the button, and Space (fire) would then toggle it again.
+    if (ev.detail > 0) commsToggle.blur();
+  });
+
   function updateEngineHum(throttleMag){
     if (!engineGain) return;
     var target = G.state === 'playing' ? 0.012 + throttleMag*0.035 : 0;
@@ -981,6 +1010,7 @@
     keys[ev.key.toLowerCase()] = true;
     if (['arrowup','arrowdown','arrowleft','arrowright',' '].indexOf(ev.key.toLowerCase()) > -1) ev.preventDefault();
     if (ev.key === ' ') fireHeld = true;
+    if (ev.key.toLowerCase() === 'm' && !ev.repeat && ev.target.tagName !== 'INPUT') toggleCommsMuted();
     if (ev.key === 'Enter'){
       if (G.state === 'title') startGame();
       else if (G.state === 'gameover-final') startGame();
@@ -1399,6 +1429,7 @@
       : names.length + ' PILOTS ' + (isJoin ? 'ON GRID' : 'OFFLINE');
     showCommsLine(lineText, kind);
 
+    if (commsMuted) return;
     var now = performance.now();
     if (now - lastAnnounceAudioAt < ANNOUNCE_MIN_AUDIO_GAP_MS) return;
     lastAnnounceAudioAt = now;
