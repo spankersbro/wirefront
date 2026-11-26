@@ -1223,6 +1223,7 @@
     ensureAudio(); resumeAudio();
     G.score = 0; G.wave = 1; G.lives = 3;
     resetPlayer();
+    resetGeminiForNewGame();
     pShots.forEach(function(s){ scene.remove(s.mesh); }); pShots = [];
     eShots.forEach(function(s){ scene.remove(s.mesh); }); eShots = [];
     particles.forEach(function(p){ scene.remove(p.mesh); }); particles = [];
@@ -1372,6 +1373,12 @@
   var TACTIC_WORDS = { flank_left:'flank left', flank_right:'flank right', hold_and_suppress:'hold and suppress', advance:'advance', retreat:'retreat' };
   var FLANK_RADIUS = 24, FLANK_SWING = 0.9, HOLD_RANGE = 45, RETREAT_RANGE = 55, ADVANCE_STOP = 16;
   var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0 };
+  // lastAskAt survives a new game on purpose: the proxy answers 'too-soon' to calls under 4s apart.
+  function resetGeminiForNewGame(){
+    gemini.lastOrdersAt = -Infinity;
+    gemini.playerHits = 0;
+    gemini.tanksLost = 0;
+  }
   var enemyIdCounter = 0;
   var radarLabel = document.getElementById('radarLabel');
 
@@ -1409,13 +1416,24 @@
   }
 
   function currentUser(){
-    return (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) || null;
+    // firebase.auth() throws every frame if initializeApp failed; then there is simply no Gemini.
+    try {
+      return (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) || null;
+    } catch (error){
+      return null;
+    }
+  }
+
+  function setRadarLabel(text){
+    if (radarLabel.textContent !== text) radarLabel.textContent = text;
   }
 
   function updateGeminiTactics(nowS){
     var geminiDriving = nowS - gemini.lastOrdersAt < GEMINI_ORDERS_FRESH_S;
     if (!geminiDriving && gemini.lastOrdersAt !== -Infinity) useScriptedTactics();
-    radarLabel.textContent = geminiDriving ? 'Scan · AI Gemini' : 'Scan · AI scripted';
+    // Only claim Gemini while a live tank actually follows its orders (a new wave or game starts scripted).
+    var anyGeminiTank = enemies.some(function(e){ return e.alive && e.tacticSource === 'gemini'; });
+    setRadarLabel(anyGeminiTank ? 'Scan · AI Gemini' : 'Scan · AI scripted');
     if (G.state !== 'playing' || document.visibilityState !== 'visible') return;
     if (gemini.inFlight || nowS - gemini.lastAskAt < GEMINI_ASK_EVERY_S) return;
     var alive = enemies.filter(function(e){ return e.alive; });
@@ -1428,7 +1446,8 @@
   function askGeminiForTactics(user, tanks){
     var summary = {
       wave: G.wave,
-      player: { yaw: player.yaw, lives: Math.max(G.lives, 0) },
+      // player.yaw grows without bound while turning; the proxy rejects |yaw| > 100.
+      player: { yaw: Math.atan2(Math.sin(player.yaw), Math.cos(player.yaw)), lives: Math.max(G.lives, 0) },
       tanks: tanks.map(function(e){
         return { id: e.id, variant: e.variant.name, dx: e.x - player.x, dz: e.z - player.z, hp: Math.max(e.hp, 0) };
       }),
@@ -1458,7 +1477,7 @@
       if (answer.reason !== 'too-soon') useScriptedTactics();
       return;
     }
-    var changed = {};
+    var changed = {}, applied = 0;
     (answer.orders || []).forEach(function(order){
       var e = enemies.find(function(x){ return x.alive && x.id === order.id; });
       if (!e || !TACTIC_WORDS[order.tactic]) return;
@@ -1466,7 +1485,10 @@
       e.tactic = order.tactic;
       e.tacticSource = 'gemini';
       setGeminiMarker(e, true);
+      applied += 1;
     });
+    // Orders for tanks that are gone (an earlier wave or game) or no orders at all leave the tanks scripted.
+    if (!applied) return;
     gemini.lastOrdersAt = clock.elapsedTime;
     announceGeminiOrders(changed);
   }
@@ -1477,7 +1499,7 @@
     Object.keys(changed).forEach(function(t){ if (!tactic || changed[t] > changed[tactic]) tactic = t; });
     if (!tactic) return;
     var count = changed[tactic], words = TACTIC_WORDS[tactic];
-    showCommsLine('GEMINI: ' + (count === 1 ? '' : count + ' TANKS ') + words.toUpperCase(), 'gemini');
+    showCommsLine('GEMINI: ' + count + (count === 1 ? ' TANK ' : ' TANKS ') + words.toUpperCase(), 'gemini');
     playCommsAudio(playCommsJoin, 'Gemini orders ' + (count === 1 ? 'a tank' : count + ' tanks') + ' to ' + words);
   }
 
@@ -1853,6 +1875,8 @@
         }),
       };
     };
+    // The one e2e hook that changes state: starts the next wave the way clearing a wave does (WF-25 tests).
+    window.__wirefrontNextWave = nextWave;
   }
 
   boot();
