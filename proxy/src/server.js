@@ -1,11 +1,14 @@
 const http = require('node:http');
 const { BadRequest, parseSummary, parseOrders } = require('./tactics');
+const { GeminiError } = require('./gemini');
 
 const MAX_BODY_BYTES = 8 * 1024;
 
 // All outside services are passed in, so tests can replace them.
-function createServer({ verifyToken, askGemini, dailyUsage, allowedOrigins, minIntervalSeconds, now = Date.now, log }) {
+function createServer({ verifyToken, askGemini, dailyUsage, allowedOrigins, minIntervalSeconds, callsPerPlayerPerDay, now = Date.now, log }) {
   const lastCallAt = new Map();
+  // uid -> Gemini calls today. One anonymous player (or script) cannot use up everyone's budget.
+  let playerCalls = { day: null, counts: new Map() };
 
   function setCors(req, res) {
     const origin = req.headers.origin;
@@ -47,6 +50,12 @@ function createServer({ verifyToken, askGemini, dailyUsage, allowedOrigins, minI
     return false;
   }
 
+  function playerLimitReached(uid) {
+    const day = new Date(now()).toISOString().slice(0, 10);
+    if (playerCalls.day !== day) playerCalls = { day, counts: new Map() };
+    return (playerCalls.counts.get(uid) || 0) >= callsPerPlayerPerDay;
+  }
+
   async function handleTactics(req, res) {
     const header = req.headers.authorization || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -65,21 +74,32 @@ function createServer({ verifyToken, askGemini, dailyUsage, allowedOrigins, minI
       throw error;
     }
 
-    if (tooSoon(uid)) return send(res, 429, { source: 'scripted', reason: 'too-soon' });
-    if (!(await dailyUsage.reserve())) {
-      log('warning', 'daily Gemini call limit reached');
+    if (tooSoon(uid)) {
+      log('info', 'too soon', { uid });
+      return send(res, 429, { source: 'scripted', reason: 'too-soon' });
+    }
+    if (playerLimitReached(uid)) {
+      log('warning', 'player daily limit reached', { uid });
+      return send(res, 200, { source: 'scripted', reason: 'player-limit' });
+    }
+    if (!(await dailyUsage.hasBudget())) {
+      log('warning', 'daily Gemini budget used up', { uid });
       return send(res, 200, { source: 'scripted', reason: 'daily-limit' });
     }
 
+    playerCalls.counts.set(uid, (playerCalls.counts.get(uid) || 0) + 1);
+    let answer;
     try {
-      const { json, usage } = await askGemini(summary);
-      const orders = parseOrders(json, summary);
-      log('info', 'gemini orders', { tanks: summary.tanks.length, orders: orders.length, usage });
-      return send(res, 200, { source: 'gemini', orders });
+      answer = await askGemini(summary);
     } catch (error) {
-      log('warning', 'gemini call failed', { error: error.message });
+      if (!(error instanceof GeminiError)) throw error;
+      log('warning', 'gemini call failed', { uid, error: error.message });
       return send(res, 200, { source: 'scripted', reason: 'gemini-error' });
     }
+    const usd = await dailyUsage.record(answer.usage);
+    const orders = parseOrders(answer.json, summary);
+    log('info', 'gemini orders', { uid, tanks: summary.tanks.length, orders: orders.length, usage: answer.usage, usd });
+    return send(res, 200, { source: 'gemini', orders });
   }
 
   return http.createServer(async (req, res) => {

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('../src/server');
+const { GeminiError } = require('../src/gemini');
 
 const ORIGIN = 'https://wirefront.davidirving.dev';
 const SUMMARY = {
@@ -17,15 +18,20 @@ const SUMMARY = {
 async function start(options = {}) {
   const calls = { gemini: [], logs: [] };
   let clock = 1_000_000;
-  let reservations = 0;
+  const recorded = [];
+  calls.recorded = recorded;
   const server = createServer({
     verifyToken: async (token) => { if (token === 'good-token' || token === 'other-token') return token; throw new Error('bad token'); },
-    askGemini: async (summary) => { calls.gemini.push(summary); return { json: { orders: [{ id: 't1', tactic: 'flank_left' }, { id: 't2', tactic: 'advance' }] }, usage: null }; },
-    dailyUsage: { reserve: async () => (++reservations <= (options.dailyLimit ?? 100)) },
+    askGemini: async (summary) => { calls.gemini.push(summary); return { json: { orders: [{ id: 't1', tactic: 'flank_left' }, { id: 't2', tactic: 'advance' }] }, usage: { promptTokenCount: 400 } }; },
+    dailyUsage: {
+      hasBudget: async () => recorded.length < (options.dailyCalls ?? 100),
+      record: async (usage) => { recorded.push(usage); return 0.0001; },
+    },
     allowedOrigins: [ORIGIN],
     minIntervalSeconds: 4,
+    callsPerPlayerPerDay: options.perPlayer ?? 100,
     now: () => clock,
-    log: (severity, message) => calls.logs.push({ severity, message }),
+    log: (severity, message, fields) => calls.logs.push({ severity, message, fields }),
     ...options.overrides,
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -51,6 +57,8 @@ test('a signed-in player gets Gemini orders for their tanks', async (t) => {
   assert.equal(response.headers.get('access-control-allow-origin'), ORIGIN);
   assert.deepEqual(await response.json(), { source: 'gemini', orders: [{ id: 't1', tactic: 'flank_left' }, { id: 't2', tactic: 'advance' }] });
   assert.equal(s.calls.gemini.length, 1);
+  assert.deepEqual(s.calls.recorded, [{ promptTokenCount: 400 }]);
+  assert.ok(s.calls.logs.some((entry) => entry.message === 'gemini orders' && entry.fields.uid === 'good-token'));
 });
 
 test('without a valid sign-in token the request is refused and Gemini is not called', async (t) => {
@@ -93,8 +101,8 @@ test('a second call from the same player within 4s gets no Gemini call; another 
   assert.equal(s.calls.gemini.length, 3);
 });
 
-test('past the daily limit the game is told to use the scripted AI', async (t) => {
-  const s = await start({ dailyLimit: 1 });
+test('once the daily budget is spent the game is told to use the scripted AI', async (t) => {
+  const s = await start({ dailyCalls: 1 });
   t.after(s.close);
   assert.equal((await (await s.post(SUMMARY)).json()).source, 'gemini');
   s.advance(5000);
@@ -102,8 +110,28 @@ test('past the daily limit the game is told to use the scripted AI', async (t) =
   assert.equal(s.calls.gemini.length, 1);
 });
 
+test('one player cannot use more than their daily share; others still get Gemini', async (t) => {
+  const s = await start({ perPlayer: 2 });
+  t.after(s.close);
+  for (let i = 0; i < 2; i++) {
+    assert.equal((await (await s.post(SUMMARY)).json()).source, 'gemini');
+    s.advance(5000);
+  }
+  assert.deepEqual(await (await s.post(SUMMARY)).json(), { source: 'scripted', reason: 'player-limit' });
+  assert.equal((await (await s.post(SUMMARY, { token: 'other-token' })).json()).source, 'gemini');
+  s.advance(24 * 3600 * 1000);
+  assert.equal((await (await s.post(SUMMARY)).json()).source, 'gemini');
+});
+
+test('a bug outside the Gemini call is a 500 with the stack logged, not a quiet fallback', async (t) => {
+  const s = await start({ overrides: { askGemini: async () => { throw new TypeError('oops'); } } });
+  t.after(s.close);
+  assert.equal((await s.post(SUMMARY)).status, 500);
+  assert.ok(s.calls.logs.some((entry) => entry.severity === 'error'));
+});
+
 test('a failing Gemini call falls back to the scripted AI and is logged', async (t) => {
-  const s = await start({ overrides: { askGemini: async () => { throw new Error('Gemini HTTP 503'); } } });
+  const s = await start({ overrides: { askGemini: async () => { throw new GeminiError('Gemini HTTP 503'); } } });
   t.after(s.close);
   const response = await s.post(SUMMARY);
   assert.deepEqual(await response.json(), { source: 'scripted', reason: 'gemini-error' });
@@ -113,7 +141,7 @@ test('a failing Gemini call falls back to the scripted AI and is logged', async 
 test('orders for unknown tanks or unknown tactics are dropped', async (t) => {
   const s = await start({ overrides: { askGemini: async () => ({ json: { orders: [
     { id: 't1', tactic: 'self_destruct' }, { id: 'zz', tactic: 'advance' }, { id: 't2', tactic: 'retreat' }, { id: 't2', tactic: 'advance' },
-  ] }, usage: null }) } });
+  ] }, usage: {} }) } });
   t.after(s.close);
   assert.deepEqual(await (await s.post(SUMMARY)).json(), { source: 'gemini', orders: [{ id: 't2', tactic: 'retreat' }] });
 });

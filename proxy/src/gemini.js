@@ -15,6 +15,7 @@ const RESPONSE_SCHEMA = {
   properties: {
     orders: {
       type: 'array',
+      maxItems: 10,
       items: {
         type: 'object',
         properties: { id: { type: 'string' }, tactic: { type: 'string', enum: TACTICS } },
@@ -25,11 +26,15 @@ const RESPONSE_SCHEMA = {
   required: ['orders'],
 };
 
-// Calls generateContent and returns the parsed JSON the model produced. Throws on any failure.
+class GeminiError extends Error {}
+
+// Calls generateContent and returns the parsed JSON plus token usage. Throws GeminiError on any failure.
 function makeGeminiClient({ apiKey, model, timeoutSeconds, fetchImpl = fetch }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   return async function askGemini(summary) {
-    const response = await fetchImpl(url, {
+    let response;
+    try {
+      response = await fetchImpl(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
@@ -38,19 +43,29 @@ function makeGeminiClient({ apiKey, model, timeoutSeconds, fetchImpl = fetch }) 
         generationConfig: {
           responseMimeType: 'application/json',
           responseSchema: RESPONSE_SCHEMA,
-          temperature: 0.8,
-          maxOutputTokens: 400,
+          // Gemini 3 thinks by default and bills thinking as output; keep it minimal (WF-7 budget).
+          thinkingConfig: { thinkingLevel: 'minimal' },
+          maxOutputTokens: 300,
         },
       }),
       signal: AbortSignal.timeout(timeoutSeconds * 1000),
-    });
-    if (!response.ok) throw new Error(`Gemini HTTP ${response.status}`);
-    const data = await response.json();
-    const text = data && data.candidates && data.candidates[0] && data.candidates[0].content
-      && data.candidates[0].content.parts && data.candidates[0].content.parts.map((part) => part.text || '').join('');
-    if (!text) throw new Error('Gemini returned no text');
-    return { json: JSON.parse(text), usage: data.usageMetadata || null };
+      });
+    } catch (error) {
+      throw new GeminiError(`Gemini request failed: ${error.message}`);
+    }
+    if (!response.ok) throw new GeminiError(`Gemini HTTP ${response.status}: ${(await response.text().catch(() => '')).slice(0, 300)}`);
+    const data = await response.json().catch(() => null);
+    const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+    const text = Array.isArray(parts) ? parts.map((part) => part.text || '').join('') : '';
+    if (!text) throw new GeminiError('Gemini returned no text');
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new GeminiError('Gemini returned text that is not JSON');
+    }
+    return { json, usage: data.usageMetadata || {} };
   };
 }
 
-module.exports = { makeGeminiClient, SYSTEM_PROMPT, RESPONSE_SCHEMA };
+module.exports = { makeGeminiClient, GeminiError, SYSTEM_PROMPT, RESPONSE_SCHEMA };
