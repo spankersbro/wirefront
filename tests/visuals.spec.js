@@ -89,3 +89,16 @@ test('if one effect script is missing, the game falls back to the CSS glow witho
   expect(await probe(page)).toMatchObject({ state: 'playing', bloom: false });
   expect(pageErrors).toEqual([]);
 });
+
+// WF-21: every tank variant builds, including the heavy tank that only appears from wave 3.
+test('the showcase shows all four tank variants without errors', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  await page.route(/gstatic\.com\/firebasejs|firebaseio\.com|googleapis\.com/, (route) => route.abort());
+  await page.goto('/index.html?e2e&bloom&showcase');
+  await page.clock.runFor(300);
+  expect((await probe(page)).state).toBe('showcase');
+  expect(pageErrors).toEqual([]);
+});

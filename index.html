@@ -1691,8 +1691,21 @@
     subscribeAllies();
   }
 
+  // ?e2e&showcase lines up every tank variant in front of the camera, for tests and design reviews (WF-21).
+  var testParams = new URLSearchParams(location.search);
+  if (testParams.has('e2e') && testParams.has('showcase')){
+    titleOverlay.hidden = true;
+    G.state = 'showcase';
+    [TANK_VARIANTS[0], TANK_VARIANTS[1], TANK_VARIANTS[2], ALLY_VARIANT].forEach(function(variant, i){
+      var mesh = makeEnemyMesh(variant);
+      mesh.position.set(-6.6 + i*4.4, 0, -9.5);
+      mesh.rotation.y = Math.PI + 0.6;
+      scene.add(mesh);
+    });
+  }
+
   // Read-only state for the Playwright suite (WF-11). Only with ?e2e, so normal players get no global.
-  if (new URLSearchParams(location.search).has('e2e')){
+  if (testParams.has('e2e')){
     window.__wirefrontProbe = function(){
       return { state: G.state, x: player.x, z: player.z, yaw: player.yaw, playerShots: pShots.length, bloom: !!composer };
     };
