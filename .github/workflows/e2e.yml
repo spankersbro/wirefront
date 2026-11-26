@@ -25,6 +25,11 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/firebase/emulators
+          # firebase-tools pins the emulator jar versions, so the lockfile is the right key.
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm run test:rules
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
