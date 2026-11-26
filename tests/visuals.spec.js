@@ -7,7 +7,7 @@ async function openGame(page, { blockBloom = false } = {}) {
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   await page.route(/gstatic\.com\/firebasejs|firebaseio\.com|googleapis\.com/, (route) => route.abort());
   if (blockBloom) await page.route(BLOOM_SCRIPTS, (route) => route.abort());
-  await page.goto('/index.html?e2e');
+  await page.goto('/index.html?e2e&bloom');
   await page.locator('#startBtn').click();
 }
 
@@ -49,10 +49,10 @@ test('without the bloom scripts the game still plays, with the CSS glow', async 
   expect(pageErrors).toEqual([]);
 });
 
-test('the glow turns off when the first 120 frames average under 30fps', async ({ page }) => {
+test('the glow turns off when the first 120 frames average under 45fps', async ({ page }) => {
   await openGame(page);
-  // One frame per 50ms jump is 20fps.
-  for (let i = 0; i < 130; i++) await page.clock.fastForward(50);
+  // One frame per 25ms jump is 40fps.
+  for (let i = 0; i < 150; i++) await page.clock.fastForward(25);
   expect((await probe(page)).bloom).toBe(false);
   await expect(page.locator('body')).toHaveClass(/no-bloom/);
 });
@@ -71,4 +71,21 @@ test('the ground is clearly lit and glows, not near-black', async ({ page }) => 
   // Measured 2026-11-26 in headless Chromium: 1.4 before WF-20, 36 after; 16.7 with the new
   // colours but no bloom pass. 25 needs both.
   expect(await groundBrightness(page)).toBeGreaterThan(25);
+});
+
+test('automated browsers skip the glow unless the URL asks for it', async ({ page }) => {
+  await page.route(/gstatic\.com\/firebasejs|firebaseio\.com|googleapis\.com/, (route) => route.abort());
+  await page.goto('/index.html?e2e');
+  expect((await probe(page)).bloom).toBe(false);
+  await expect(page.locator('body')).toHaveClass(/no-bloom/);
+});
+
+test('if one effect script is missing, the game falls back to the CSS glow without errors', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.route(/examples\/js\/shaders\/LuminosityHighPassShader\.js/, (route) => route.abort());
+  await openGame(page);
+  await page.clock.runFor(500);
+  expect(await probe(page)).toMatchObject({ state: 'playing', bloom: false });
+  expect(pageErrors).toEqual([]);
 });

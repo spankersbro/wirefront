@@ -455,35 +455,63 @@
   var camera = new THREE.PerspectiveCamera(72, 1, 0.1, 500);
   var camBaseY = 1.55;
 
-  var composer = null, bloomPass = null;
-  if (THREE.EffectComposer && THREE.RenderPass && THREE.UnrealBloomPass){
-    composer = new THREE.EffectComposer(renderer);
-    composer.addPass(new THREE.RenderPass(scene, camera));
+  var composer = null, bloomPass = null, composerUsesDevicePixels = false;
+  // Automated browsers (the test suite) render in software, where bloom is very slow; ?bloom opts in.
+  var bloomWanted = !navigator.webdriver || new URLSearchParams(location.search).has('bloom');
+  var bloomScriptsLoaded = ['CopyShader','LuminosityHighPassShader','EffectComposer','RenderPass','ShaderPass','UnrealBloomPass']
+    .every(function(name){ return THREE[name] !== undefined; });
+  if (bloomWanted && bloomScriptsLoaded){
+    try{
+      composer = makeBloomComposer();
+    }catch(e){
+      console.warn('Wirefront: bloom setup failed, using the CSS glow.', e);
+      composer = null;
+    }
+  }
+  if (!composer) document.body.classList.add('no-bloom');
+
+  function makeBloomComposer(){
+    // The composer renders into its own target, which has no antialiasing; on WebGL2 give it a multisampled one.
+    var target;
+    if (renderer.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget){
+      var dpr = renderer.getPixelRatio();
+      target = new THREE.WebGLMultisampleRenderTarget(window.innerWidth*dpr, window.innerHeight*dpr, { format: THREE.RGBAFormat });
+      composerUsesDevicePixels = true;
+    }
+    var c = new THREE.EffectComposer(renderer, target);
+    c.addPass(new THREE.RenderPass(scene, camera));
     // strength, radius, threshold: a strong, tight glow on lines; the near-black faces stay dark.
     bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.25, 0.45, 0.08);
-    composer.addPass(bloomPass);
-  } else {
+    c.addPass(bloomPass);
+    return c;
+  }
+
+  function dropBloom(){
+    bloomPass.dispose();
+    composer.renderTarget1.dispose();
+    composer.renderTarget2.dispose();
+    composer = null;
     document.body.classList.add('no-bloom');
   }
 
-  // Bloom costs GPU time. If the first stretch of play runs slower than about 30fps, turn it off.
+  // Bloom costs GPU time. If the first stretch of play runs slower than about 45fps, turn it off.
   var BLOOM_CHECK_FRAMES = 120;
-  var BLOOM_MIN_FPS = 30;
+  var BLOOM_MIN_FPS = 45;
   var bloomCheck = { frames: 0, seconds: 0 };
   function checkBloomFrameRate(dt){
     if (!composer || bloomCheck.frames >= BLOOM_CHECK_FRAMES) return;
     bloomCheck.frames += 1;
     bloomCheck.seconds += dt;
-    if (bloomCheck.frames === BLOOM_CHECK_FRAMES && bloomCheck.seconds / BLOOM_CHECK_FRAMES > 1 / BLOOM_MIN_FPS){
-      composer = null;
-      document.body.classList.add('no-bloom');
-    }
+    if (bloomCheck.frames === BLOOM_CHECK_FRAMES && bloomCheck.seconds / BLOOM_CHECK_FRAMES > 1 / BLOOM_MIN_FPS) dropBloom();
   }
 
   function resize(){
     var w = window.innerWidth, h = window.innerHeight;
     renderer.setSize(w, h);
-    if (composer) composer.setSize(w, h);
+    if (composer){
+      var scale = composerUsesDevicePixels ? renderer.getPixelRatio() : 1;
+      composer.setSize(w*scale, h*scale);
+    }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
@@ -520,8 +548,8 @@
   sunLight.position.set(70, 110, 50);
   scene.add(sunLight);
 
-  // Ground grid built from short segments: a line that runs behind the camera is dropped by
-  // some renderers (seen in Chrome's software renderer), which hid every line running toward the horizon.
+  // Ground grid built from short segments: Chrome's software renderer (SwiftShader, used by headless
+  // tests) drops a line that runs behind the camera, which hid every line running toward the horizon.
   (function groundGrid(){
     var SPACING = 5, SEGMENT = 5, half = WORLD_R;
     var pts = [];
@@ -607,19 +635,19 @@
       var roll = Math.random();
       if (roll < 0.5){
         var h = 6+Math.random()*7, w = h*0.85;
-        group = wireGroup(new THREE.ConeGeometry(w, h, 4), PHOS, true, dimColor(PHOS, 0.07));
+        group = wireGroup(new THREE.ConeGeometry(w, h, 4), dimColor(PHOS, 0.6), true, dimColor(PHOS, 0.05));
         group.position.set(x, h/2, z);
         group.rotation.y = Math.random()*Math.PI;
         r = w*0.8;
       } else if (roll < 0.8){
         var s = 3.2+Math.random()*2.4;
-        group = wireGroup(new THREE.BoxGeometry(s, s*0.8, s), AMBER, true, dimColor(AMBER, 0.07));
+        group = wireGroup(new THREE.BoxGeometry(s, s*0.8, s), dimColor(AMBER, 0.6), true, dimColor(AMBER, 0.05));
         group.position.set(x, s*0.4, z);
         group.rotation.y = Math.random()*Math.PI;
         r = s*0.75;
       } else {
         var rr = 2.6+Math.random()*2.0;
-        group = wireGroup(new THREE.IcosahedronGeometry(rr, 0), CYAN, true, dimColor(CYAN, 0.07));
+        group = wireGroup(new THREE.IcosahedronGeometry(rr, 0), dimColor(CYAN, 0.6), true, dimColor(CYAN, 0.05));
         group.position.set(x, rr*0.7, z);
         group.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
         r = rr*0.85;
