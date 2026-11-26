@@ -206,18 +206,32 @@ test('retreating tanks move away from the player; advancing ones close in', asyn
   }
 });
 
-test('hits on the player since the last orders are reported to Gemini', async ({ page }) => {
-  const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
+test('hits on the player are reported until Gemini has answered, then counted from zero again', async ({ page }) => {
+  let geminiAnswers = false;
+  const requests = await openGame(page, (body) => (geminiAnswers ? allTanks('advance')(body) : { source: 'scripted', reason: 'daily-limit' }), { seed: 5 });
   await engage(page);
   await expect.poll(() => requests.length).toBe(1);
   // Standing still, enemy fire lands within about 15s of game time.
   for (let i = 0; i < 20 && (await page.locator('.life-glyph.spent').count()) === 0; i++) await page.clock.runFor(1000);
   const hits = await page.locator('.life-glyph.spent').count();
   expect(hits).toBeGreaterThan(0);
+  // A scripted answer means Gemini never saw the count, so the next request carries it again.
+  const sent = requests.length;
   await skip(page, ASK_EVERY_MS);
-  await expect.poll(() => requests.length).toBeGreaterThan(1);
-  const reported = requests.slice(1).reduce((sum, request) => sum + request.body.sinceLastOrders.kills, 0);
-  expect(reported).toBe(hits);
+  await expect.poll(() => requests.length).toBe(sent + 1);
+  expect(requests[sent].body.sinceLastOrders.kills).toBe(hits);
+  await skip(page, ASK_EVERY_MS);
+  await expect.poll(() => requests.length).toBe(sent + 2);
+  expect(requests[sent + 1].body.sinceLastOrders.kills).toBe(hits);
+  geminiAnswers = true;
+  await skip(page, ASK_EVERY_MS);
+  await expect.poll(() => requests.length).toBe(sent + 3);
+  await expect.poll(async () => (await enemies(page))[0].source).toBe('gemini');
+  const hitsBefore = await page.locator('.life-glyph.spent').count();
+  await skip(page, ASK_EVERY_MS);
+  await expect.poll(() => requests.length).toBe(sent + 4);
+  const newHits = (await page.locator('.life-glyph.spent').count()) - hitsBefore;
+  expect(requests[sent + 3].body.sinceLastOrders.kills).toBe(newHits);
 });
 
 test('flank-left tanks circle one way around the player, flank-right tanks the other', async ({ browser }) => {
@@ -265,10 +279,13 @@ test('a new wave starts with the scripted AI: no Gemini label and no marked tank
 test('Retry starts with the scripted AI and reports no hits from the last game', async ({ page }) => {
   test.setTimeout(120000);
   let gameOver = false;
-  const requests = await openGame(page, (body) => (gameOver ? null : allTanks('hold_and_suppress')(body)));
+  const requests = await openGame(page, (body) => (gameOver ? null : allTanks('hold_and_suppress')(body)), { seed: 3 });
   await engage(page);
   await playUntilGameOver(page);
-  await expect(radarLabel(page)).toHaveText('Scan · AI Gemini');
+  // Game over hands the frozen tanks back to the scripted AI at once.
+  await page.clock.runFor(50);
+  await expect(radarLabel(page)).toHaveText('Scan · AI scripted');
+  expect((await enemies(page)).map((e) => [e.source, e.marker]).every(([source, marker]) => source === 'scripted' && !marker)).toBe(true);
   gameOver = true;
   const sent = requests.length;
   await page.locator('#retryBtn').click();
@@ -346,4 +363,44 @@ test('answers with no orders do not keep old Gemini orders fresh: the tanks stil
   await expect.poll(async () => (await enemies(page))[0].source).toBe('gemini');
   for (let i = 0; i < 5; i++) await skip(page, 2500);
   await expect.poll(async () => (await enemies(page)).every((e) => e.source === 'scripted')).toBe(true);
+});
+
+test('an answer that arrives while the tab is hidden is dropped, not spoken', async ({ page }) => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const requests = await openGame(page, (body) => held.then(() => allTanks('flank_left')(body)));
+  await engage(page);
+  await expect.poll(() => requests.length).toBe(1);
+  await page.evaluate(() => { window.__hidden = true; });
+  const answered = page.waitForResponse(PROXY);
+  release();
+  await answered;
+  await page.clock.runFor(50);
+  expect(await spoken(page)).toEqual([]);
+  expect((await enemies(page)).every((e) => e.source === 'scripted')).toBe(true);
+});
+
+test('if the sign-in token never arrives, the game asks again after 10s', async ({ page }) => {
+  const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
+  await page.evaluate(() => {
+    const original = firebase.auth().currentUser.getIdToken;
+    let calls = 0;
+    firebase.auth().currentUser.getIdToken = () => (calls++ === 0 ? new Promise(() => {}) : original());
+  });
+  await engage(page);
+  await skip(page, 9500);
+  expect(requests).toHaveLength(0);
+  await skip(page, 1000);
+  await expect.poll(() => requests.length).toBe(1);
+});
+
+test('after the e2e next-wave hook was used, the score is not saved to the leaderboard', async ({ page }) => {
+  test.setTimeout(120000);
+  await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
+  await engage(page);
+  await nextWave(page);
+  await playUntilGameOver(page);
+  await page.locator('#submitScoreBtn').click();
+  await expect(page.locator('#initialsStep')).toBeHidden();
+  expect(await page.evaluate(() => window.__fakeFirestore.adds)).toEqual([]);
 });

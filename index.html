@@ -823,6 +823,7 @@
     mesh.position.set(x, 0, z);
     scene.add(mesh);
     var speed = (3.2 + Math.random()*1.2 + (G.wave-1)*0.35) * variant.speedMul;
+    // 't' + at most 7 digits: the proxy accepts ids of 1-8 characters [a-z0-9] and rejects the whole request otherwise.
     enemyIdCounter = enemyIdCounter % 9999999 + 1;
     enemies.push({
       id: 't' + enemyIdCounter, tactic: 'advance', tacticSource: 'scripted', geminiMarker: null,
@@ -1262,6 +1263,7 @@
 
   function gameOver(){
     G.state = 'gameover';
+    useScriptedTactics();
     document.getElementById('finalScore').textContent = G.score;
     document.getElementById('finalWave').textContent = 'Reached wave ' + G.wave;
     initialsStep.style.display = '';
@@ -1355,6 +1357,7 @@
       if (e.fireCd <= 0 && dist < 70 && Math.abs(diff) < 0.6){
         fireEnemyShot(e);
         e.fireCd = 2.2 + Math.random()*2 - Math.min(G.wave*0.12, 1.4);
+        // Tuned by eye: holding tanks fire about 40% more often, the point of suppressing.
         if (e.tactic === 'hold_and_suppress') e.fireCd *= 0.7;
       }
 
@@ -1370,7 +1373,10 @@
   var GEMINI_REQUEST_TIMEOUT_MS = 6000;
   // Tanks count as Gemini-driven only while Gemini's last orders are this fresh.
   var GEMINI_ORDERS_FRESH_S = 12;
+  // A request still open after this long is given up (a sign-in token that never arrives has no timeout).
+  var GEMINI_GIVE_UP_AFTER_S = 10;
   var TACTIC_WORDS = { flank_left:'flank left', flank_right:'flank right', hold_and_suppress:'hold and suppress', advance:'advance', retreat:'retreat' };
+  // Tuned by eye in play, not measured. ADVANCE_STOP is the scripted AI's old stop distance.
   var FLANK_RADIUS = 24, FLANK_SWING = 0.9, HOLD_RANGE = 45, RETREAT_RANGE = 55, ADVANCE_STOP = 16;
   var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0 };
   // lastAskAt survives a new game on purpose: the proxy answers 'too-soon' to calls under 4s apart.
@@ -1380,6 +1386,7 @@
     gemini.tanksLost = 0;
   }
   var enemyIdCounter = 0;
+  var scoreSavingBlocked = false;
   var radarLabel = document.getElementById('radarLabel');
 
   // The point a tank drives towards for its tactic, or null to stay put.
@@ -1435,7 +1442,8 @@
     var anyGeminiTank = enemies.some(function(e){ return e.alive && e.tacticSource === 'gemini'; });
     setRadarLabel(anyGeminiTank ? 'Scan · AI Gemini' : 'Scan · AI scripted');
     if (G.state !== 'playing' || document.visibilityState !== 'visible') return;
-    if (gemini.inFlight || nowS - gemini.lastAskAt < GEMINI_ASK_EVERY_S) return;
+    if (gemini.inFlight && nowS - gemini.lastAskAt < GEMINI_GIVE_UP_AFTER_S) return;
+    if (nowS - gemini.lastAskAt < GEMINI_ASK_EVERY_S) return;
     var alive = enemies.filter(function(e){ return e.alive; });
     var user = currentUser();
     if (!alive.length || !user) return;
@@ -1453,8 +1461,6 @@
       }),
       sinceLastOrders: { kills: Math.min(gemini.playerHits, 99), losses: Math.min(gemini.tanksLost, 99) },
     };
-    gemini.playerHits = 0;
-    gemini.tanksLost = 0;
     gemini.inFlight = true;
     user.getIdToken().then(function(token){
       return fetch(GEMINI_PROXY_URL, {
@@ -1464,14 +1470,22 @@
         signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
       });
     }).then(function(response){ return response.json(); })
-      .then(applyGeminiAnswer)
+      .then(function(answer){
+        // The counts reached Gemini only if it answered; otherwise they go out again with the next request.
+        if (answer && answer.source === 'gemini'){
+          gemini.playerHits = Math.max(gemini.playerHits - summary.sinceLastOrders.kills, 0);
+          gemini.tanksLost = Math.max(gemini.tanksLost - summary.sinceLastOrders.losses, 0);
+        }
+        applyGeminiAnswer(answer);
+      })
       // Proxy unreachable or slow: the tanks keep their current tactics and go scripted once orders go stale.
       .catch(function(){})
       .then(function(){ gemini.inFlight = false; });
   }
 
   function applyGeminiAnswer(answer){
-    if (!answer || G.state !== 'playing') return;
+    // Not while the tab is hidden: the order would be spoken, then dropped as stale on return.
+    if (!answer || G.state !== 'playing' || document.visibilityState !== 'visible') return;
     if (answer.source !== 'gemini'){
       // 'too-soon' only means we asked early; any other reason means no Gemini for now.
       if (answer.reason !== 'too-soon') useScriptedTactics();
@@ -1608,7 +1622,7 @@
     var initials = raw.toUpperCase().replace(/[^A-Z]/g,'').slice(0,3) || 'ACE';
     if (BLOCKED_INITIALS.indexOf(initials) > -1){ showInitialsError(true); return; }
     playBlip();
-    if (db){
+    if (db && !scoreSavingBlocked){
       db.collection('scores').add({ initials: initials, score: G.score, wave: G.wave, ts: Date.now() }).catch(function(){});
     }
     initialsStep.style.display = 'none';
@@ -1876,7 +1890,8 @@
       };
     };
     // The one e2e hook that changes state: starts the next wave the way clearing a wave does (WF-25 tests).
-    window.__wirefrontNextWave = nextWave;
+    // Anyone can add ?e2e, so a tab that used it never saves a score to the public leaderboard.
+    window.__wirefrontNextWave = function(){ scoreSavingBlocked = true; nextWave(); };
   }
 
   boot();
