@@ -1,7 +1,7 @@
 // Stands in for the Firebase compat SDK in tests. No network code: the test
 // drives presence events through window.__fakeRtdb instead of live RTDB.
-// Simplified on purpose: every ref shares one listener map whatever its path, and
-// remove() does not echo a child_removed, so the stale sweep is not modelled.
+// Simplified on purpose: every ref shares one listener map whatever its path, except
+// '.info/...' paths, which get their own. remove() is recorded but does not echo a child_removed.
 (function () {
   var listeners = {};
   var writes = [];
@@ -10,9 +10,13 @@
   var noop = function () {};
   var SERVER_TIMESTAMP = { '.sv': 'timestamp' };
 
+  function listenerKey(path, event) {
+    return path && path.indexOf('.info/') === 0 ? path + ':' + event : event;
+  }
+
   function ref(path) {
     return {
-      on: function (event, callback) { (listeners[event] = listeners[event] || []).push(callback); },
+      on: function (event, callback) { var key = listenerKey(path, event); (listeners[key] = listeners[key] || []).push(callback); },
       once: function (event, callback) { (listeners['once:' + event] = listeners['once:' + event] || []).push(callback); },
       set: function (value) { writes.push({ path: path, value: value }); return Promise.resolve(); },
       remove: function () { removes.push(path); return window.__fakeRtdb.refuseRemoves ? Promise.reject(new Error('PERMISSION_DENIED')) : Promise.resolve(); },
@@ -33,6 +37,7 @@
     disconnectRemoves: disconnectRemoves,
     uid: 'fake-anon-uid',
     finishInitialLoad: function () { emit('once:value'); },
+    setServerTimeOffset: function (offsetMs) { emit('.info/serverTimeOffset:value', null, offsetMs); },
   };
 
   var query = { orderBy: function () { return query; }, limit: function () { return query; }, onSnapshot: noop };
