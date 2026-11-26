@@ -89,7 +89,10 @@
     font-family:'Share Tech Mono',monospace; font-size:.62rem; letter-spacing:.1em;
     background:transparent; color:var(--phosphor); border:1px solid var(--phosphor-dim); padding:.2rem .45rem;
   }
-  .comms-toggle[aria-pressed="true"]{ color:var(--amber); border-color:var(--amber); }
+  .comms-toggle[aria-pressed="true"]{ color:var(--amber); border-color:var(--amber); text-decoration:line-through; }
+  body.touch .comms-toggle{ min-height:32px; }
+  /* Behind an overlay the button is invisible but would still take Tab focus. */
+  body:has(.overlay:not([hidden])) .comms-toggle{ visibility:hidden; }
 
   .radar-wrap{
     position:absolute; top:12px; left:50%; transform:translateX(-50%);
@@ -983,7 +986,6 @@
 
   function showCommsMuted(){
     commsToggle.setAttribute('aria-pressed', String(commsMuted));
-    commsToggle.textContent = commsMuted ? 'MUTED' : 'COMMS';
   }
   function toggleCommsMuted(){
     commsMuted = !commsMuted;
@@ -1010,7 +1012,8 @@
     keys[ev.key.toLowerCase()] = true;
     if (['arrowup','arrowdown','arrowleft','arrowright',' '].indexOf(ev.key.toLowerCase()) > -1) ev.preventDefault();
     if (ev.key === ' ') fireHeld = true;
-    if (ev.key.toLowerCase() === 'm' && !ev.repeat && ev.target.tagName !== 'INPUT') toggleCommsMuted();
+    var withModifier = ev.ctrlKey || ev.metaKey || ev.altKey;
+    if (ev.key.toLowerCase() === 'm' && !ev.repeat && !withModifier && ev.target.tagName !== 'INPUT') toggleCommsMuted();
     if (ev.key === 'Enter'){
       if (G.state === 'title') startGame();
       else if (G.state === 'gameover-final') startGame();

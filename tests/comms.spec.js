@@ -180,12 +180,12 @@ async function engage(page) {
 test('comms are on by default; clicking the toggle mutes the voice but keeps the line', async ({ page }) => {
   await openRoom(page);
   await engage(page);
-  await expect(commsToggle(page)).toHaveText('COMMS');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
   await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByRole('button', { name: 'Mute comms' })).toBeVisible();
 
   await commsToggle(page).click();
-  await expect(commsToggle(page)).toHaveText('MUTED');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
   await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
   await expect(commsToggle(page)).not.toBeFocused();
   await join(page, 'p1', 'IRON WOLF');
@@ -202,7 +202,7 @@ test('M toggles mute; a muted batch does not hold back the next voice line', asy
   expect(await spoken(page)).toEqual([]);
 
   await page.keyboard.press('m');
-  await expect(commsToggle(page)).toHaveText('COMMS');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
   await join(page, 'p2', 'GHOST HAWK');
   await page.clock.runFor(BATCH_MS);
   expect(await spoken(page)).toEqual(['GHOST HAWK has entered the field']);
@@ -229,7 +229,33 @@ test('holding M down does not keep toggling', async ({ page }) => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm' }));
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', repeat: true }));
   });
-  await expect(commsToggle(page)).toHaveText('MUTED');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Ctrl+M, Cmd+M and Alt+M do not toggle mute', async ({ page }) => {
+  await openRoom(page);
+  for (const chord of ['Control+m', 'Meta+m', 'Alt+m']) await page.keyboard.press(chord);
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('on the title screen, Tab then Enter starts the game and leaves comms on', async ({ page }) => {
+  await openRoom(page);
+  await expect(commsToggle(page)).toBeHidden();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#startBtn')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#titleOverlay')).toBeHidden();
+  await expect(commsToggle(page)).toBeVisible();
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('during play, Enter on the focused toggle mutes once', async ({ page }) => {
+  await openRoom(page);
+  await engage(page);
+  await commsToggle(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect(commsToggle(page)).toBeFocused();
 });
 
 test('M typed into the initials field does not toggle mute', async ({ page }) => {
@@ -237,14 +263,14 @@ test('M typed into the initials field does not toggle mute', async ({ page }) =>
   await page.evaluate(() => {
     document.getElementById('initials').dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
   });
-  await expect(commsToggle(page)).toHaveText('COMMS');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('mute is remembered after a reload', async ({ page }) => {
   await openRoom(page);
   await page.keyboard.press('m');
   await page.reload();
-  await expect(commsToggle(page)).toHaveText('MUTED');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
   await page.evaluate(() => window.__fakeRtdb.finishInitialLoad());
   await join(page, 'p1', 'IRON WOLF');
   await page.clock.runFor(BATCH_MS);
@@ -259,7 +285,7 @@ test('without storage, comms start on and mute still works for the session', asy
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await openRoom(page);
-  await expect(commsToggle(page)).toHaveText('COMMS');
+  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
   await page.keyboard.press('m');
   await join(page, 'p1', 'IRON WOLF');
   await page.clock.runFor(BATCH_MS);
