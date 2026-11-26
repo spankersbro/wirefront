@@ -181,11 +181,9 @@ test('comms are on by default; clicking the toggle mutes the voice but keeps the
   await openRoom(page);
   await engage(page);
   await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
-  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByRole('button', { name: 'Mute comms' })).toBeVisible();
 
   await commsToggle(page).click();
-  await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
   await expect(commsToggle(page)).toHaveAttribute('aria-pressed', 'true');
   await expect(commsToggle(page)).not.toBeFocused();
   await join(page, 'p1', 'IRON WOLF');
