@@ -475,7 +475,7 @@
     var target;
     if (renderer.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget){
       var dpr = renderer.getPixelRatio();
-      target = new THREE.WebGLMultisampleRenderTarget(window.innerWidth*dpr, window.innerHeight*dpr, { format: THREE.RGBAFormat });
+      target = new THREE.WebGLMultisampleRenderTarget(Math.floor(window.innerWidth*dpr), Math.floor(window.innerHeight*dpr), { format: THREE.RGBAFormat });
       composerUsesDevicePixels = true;
     }
     var c = new THREE.EffectComposer(renderer, target);
@@ -510,7 +510,7 @@
     renderer.setSize(w, h);
     if (composer){
       var scale = composerUsesDevicePixels ? renderer.getPixelRatio() : 1;
-      composer.setSize(w*scale, h*scale);
+      composer.setSize(Math.floor(w*scale), Math.floor(h*scale));
     }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
