@@ -416,6 +416,7 @@
   var db = null, userCap = null;
 
   var rtdb = null, presenceRef = null;
+  var serverTimeOffsetMs = 0;
   // The anonymous Firebase Auth uid. The RTDB rules only let a player write the entry under their own uid,
   // so each account can hold one tank.
   var clientId = null;
@@ -1367,9 +1368,9 @@
   // its rtdb entry so every client converges on the same removal.
   function sweepStaleAllies(nowMs){
     if (!rtdb) return;
-    var cutoff = Date.now() - PRESENCE_TIMEOUT_MS;
+    // Presence t is server time; the rules check staleness against server time too.
+    var cutoff = Date.now() + serverTimeOffsetMs - PRESENCE_TIMEOUT_MS;
     for (var id in allies){
-      // The rules check staleness against server time; with a skewed local clock the delete is refused and another client sweeps it.
       if (allies[id].t < cutoff) rtdb.ref(PLAYERS_PATH + '/' + id).remove().catch(function(){});
     }
   }
@@ -1543,6 +1544,7 @@
     clientId = credential.user.uid;
     presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
     presenceRef.onDisconnect().remove();
+    rtdb.ref('.info/serverTimeOffset').on('value', function(snap){ serverTimeOffsetMs = snap.val(); });
     subscribeAllies();
   }
 

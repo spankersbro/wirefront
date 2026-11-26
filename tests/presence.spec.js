@@ -95,3 +95,40 @@ test('two tabs in the same browser get separate uids and entries', async ({ brow
   expect(keys[0]).not.toBe(keys[1]);
   await context.close();
 });
+
+// WF-14: presence t is server time, so the stale sweep must compare it with server time, not the local clock.
+async function addAllyAtServerAge(page, offsetMs, ageMs) {
+  await expect.poll(async () => (await presenceWrites(page)).length).toBeGreaterThan(0);
+  await page.evaluate(([offsetMs, ageMs]) => {
+    window.__fakeRtdb.setServerTimeOffset(offsetMs);
+    window.__fakeRtdb.finishInitialLoad();
+    const serverNow = Date.now() + offsetMs;
+    window.__fakeRtdb.emit('child_added', 'someone-else', { name: 'IRON WOLF', x: 30, z: 30, yaw: 0, t: serverNow - ageMs });
+  }, [offsetMs, ageMs]);
+}
+
+test('with the local clock 60s fast, a fresh ally is not swept', async ({ page }) => {
+  await openWithFakeFirebase(page);
+  await addAllyAtServerAge(page, -60000, 0);
+  // Longer than one 3s sweep interval.
+  await page.waitForTimeout(3500);
+  expect(await page.evaluate(() => window.__fakeRtdb.removes)).toEqual([]);
+});
+
+test('with the local clock 60s slow, an ally 20s stale on the server is swept', async ({ page }) => {
+  await openWithFakeFirebase(page);
+  await addAllyAtServerAge(page, 60000, 20000);
+  await expect.poll(() => page.evaluate(() => window.__fakeRtdb.removes), { timeout: 5000 }).toContain('rooms/global/players/someone-else');
+});
+
+test('with no clock offset, an ally 10s old is kept and one 20s old is swept', async ({ page }) => {
+  await openWithFakeFirebase(page);
+  await expect.poll(async () => (await presenceWrites(page)).length).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    window.__fakeRtdb.finishInitialLoad();
+    window.__fakeRtdb.emit('child_added', 'fresh-ally', { name: 'IRON WOLF', x: 30, z: 30, yaw: 0, t: Date.now() - 10000 });
+    window.__fakeRtdb.emit('child_added', 'stale-ally', { name: 'GHOST HAWK', x: 40, z: 40, yaw: 0, t: Date.now() - 20000 });
+  });
+  await expect.poll(() => page.evaluate(() => window.__fakeRtdb.removes), { timeout: 5000 }).toContain('rooms/global/players/stale-ally');
+  expect(await page.evaluate(() => window.__fakeRtdb.removes)).not.toContain('rooms/global/players/fresh-ally');
+});
