@@ -1351,7 +1351,7 @@
       group: group, name: name,
       x: data.x||0, z: data.z||0, yaw: data.yaw||0,
       targetX: data.x||0, targetZ: data.z||0, targetYaw: data.yaw||0,
-      t: data.t || Date.now()
+      t: data.t || serverNow()
     };
   }
 
@@ -1359,17 +1359,19 @@
     var a = allies[id];
     if (!a){ addAlly(id, data); return; }
     a.targetX = data.x||0; a.targetZ = data.z||0; a.targetYaw = data.yaw||0;
-    a.t = data.t || Date.now();
+    a.t = data.t || serverNow();
   }
 
   // presence writes are throttled to every PRESENCE_HZ_MS, but a tab can vanish
   // without onDisconnect firing (crash, force-quit, killed network) and leave a
   // frozen tank behind. Sweep out any ally whose last update is stale and drop
   // its rtdb entry so every client converges on the same removal.
-  function sweepStaleAllies(nowMs){
+  function serverNow(){ return Date.now() + serverTimeOffsetMs; }
+
+  function sweepStaleAllies(){
     if (!rtdb) return;
     // Presence t is server time; the rules check staleness against server time too.
-    var cutoff = Date.now() + serverTimeOffsetMs - PRESENCE_TIMEOUT_MS;
+    var cutoff = serverNow() - PRESENCE_TIMEOUT_MS;
     for (var id in allies){
       if (allies[id].t < cutoff) rtdb.ref(PLAYERS_PATH + '/' + id).remove().catch(function(){});
     }
@@ -1505,7 +1507,7 @@
     sendPresence(presenceNow);
     if (presenceNow - lastStaleSweep >= STALE_SWEEP_MS){
       lastStaleSweep = presenceNow;
-      sweepStaleAllies(presenceNow);
+      sweepStaleAllies();
     }
     drawRadar(dt);
     renderer.render(scene, camera);
@@ -1544,7 +1546,7 @@
     clientId = credential.user.uid;
     presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
     presenceRef.onDisconnect().remove();
-    rtdb.ref('.info/serverTimeOffset').on('value', function(snap){ serverTimeOffsetMs = snap.val(); });
+    rtdb.ref('.info/serverTimeOffset').on('value', function(snap){ serverTimeOffsetMs = snap.val() || 0; });
     subscribeAllies();
   }
 

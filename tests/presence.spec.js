@@ -110,9 +110,12 @@ async function addAllyAtServerAge(page, offsetMs, ageMs) {
 test('with the local clock 60s fast, a fresh ally is not swept', async ({ page }) => {
   await openWithFakeFirebase(page);
   await addAllyAtServerAge(page, -60000, 0);
-  // Longer than one 3s sweep interval.
-  await page.waitForTimeout(3500);
-  expect(await page.evaluate(() => window.__fakeRtdb.removes)).toEqual([]);
+  // A stale ally proves a sweep ran; both are checked in the same sweep.
+  await page.evaluate(() => {
+    window.__fakeRtdb.emit('child_added', 'stale-ally', { name: 'GHOST HAWK', x: 40, z: 40, yaw: 0, t: Date.now() - 60000 - 20000 });
+  });
+  await expect.poll(() => page.evaluate(() => window.__fakeRtdb.removes), { timeout: 5000 }).toContain('rooms/global/players/stale-ally');
+  expect(await page.evaluate(() => window.__fakeRtdb.removes)).not.toContain('rooms/global/players/someone-else');
 });
 
 test('with the local clock 60s slow, an ally 20s stale on the server is swept', async ({ page }) => {
