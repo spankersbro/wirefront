@@ -1,0 +1,14 @@
+{
+  "name": "wirefront-gemini-proxy",
+  "private": true,
+  "description": "Asks Gemini for enemy tank tactics. The Gemini key stays on the server (WF-24).",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=24" },
+  "dependencies": {
+    "firebase-admin": "14.5.0"
+  }
+}

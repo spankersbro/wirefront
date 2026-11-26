@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
-const { collection, addDoc } = require('firebase/firestore');
+const { collection, addDoc, doc, getDoc, setDoc } = require('firebase/firestore');
 
 const ROOT = path.join(__dirname, '..', '..');
 let testEnv;
@@ -48,4 +48,13 @@ test('the game and the rule block the same list', () => {
   assert.ok(ruleList, 'blocked list not found in firestore.rules');
   const parse = (list) => JSON.parse(list.replace(/'/g, '"'));
   assert.deepEqual(parse(ruleList[1]), parse(gameList[1]));
+});
+
+// WF-24: the Gemini proxy's daily call counter is server-only; players must not read or reset it.
+test('players cannot read or write the proxy usage counter', async () => {
+  const db = testEnv.unauthenticatedContext().firestore();
+  const signedIn = testEnv.authenticatedContext('alice').firestore();
+  await assertFails(getDoc(doc(db, 'proxyUsage', '2026-11-26')));
+  await assertFails(setDoc(doc(db, 'proxyUsage', '2026-11-26'), { calls: 0 }));
+  await assertFails(setDoc(doc(signedIn, 'proxyUsage', '2026-11-26'), { calls: 0 }));
 });
