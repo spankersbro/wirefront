@@ -21,6 +21,13 @@ async function openGame(page, reply, { seed } = {}) {
     speechSynthesis.speak = (utterance) => window.__spoken.push(utterance.text);
     speechSynthesis.cancel = () => {};
     window.__hidden = false;
+    // Counted when the page calls fetch, so a test needs no wait for the request to reach the route.
+    window.__proxyFetches = 0;
+    const realFetch = window.fetch;
+    window.fetch = (url, options) => {
+      if (String(url).endsWith('/tactics')) window.__proxyFetches += 1;
+      return realFetch(url, options);
+    };
     Object.defineProperty(document, 'visibilityState', { get: () => (window.__hidden ? 'hidden' : 'visible') });
   });
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
@@ -62,6 +69,7 @@ const allTanks = (tactic) => (body) => ({ source: 'gemini', orders: body.tanks.m
 const commsLines = (page) => page.locator('#commsFeed .comms-line');
 const spoken = (page) => page.evaluate(() => window.__spoken);
 const radarLabel = (page) => page.locator('#radarLabel');
+const proxyFetches = (page) => page.evaluate(() => window.__proxyFetches);
 // The route has answered, but the page handles the answer asynchronously; wait for that before moving game time on.
 const answerHandled = (page) => expect.poll(async () => (await page.evaluate(() => window.__wirefrontProbe())).geminiInFlight).toBe(false);
 // Starts the next wave the way clearing a wave does (e2e-only hook).
@@ -224,6 +232,7 @@ test('hits on the player are reported until Gemini has answered, then counted fr
   for (let i = 0; i < 20 && (await page.locator('.life-glyph.spent').count()) === 0; i++) await page.clock.runFor(1000);
   const hits = await page.locator('.life-glyph.spent').count();
   expect(hits).toBeGreaterThan(0);
+  await answerHandled(page);
   // A scripted answer means Gemini never saw the count, so the next request carries it again.
   const sent = requests.length;
   await skip(page, ASK_EVERY_MS);
@@ -270,6 +279,7 @@ test('nothing is sent after game over, while the tanks are still on the field', 
   const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
   await engage(page);
   await playUntilGameOver(page);
+  await answerHandled(page);
   const sent = requests.length;
   await skip(page, ASK_EVERY_MS * 3);
   expect(requests).toHaveLength(sent);
@@ -300,6 +310,7 @@ test('Retry starts with the scripted AI and reports no hits from the last game',
   await expect(radarLabel(page)).toHaveText('Scan · AI scripted');
   expect((await enemies(page)).map((e) => [e.source, e.marker]).every(([source, marker]) => source === 'scripted' && !marker)).toBe(true);
   gameOver = true;
+  await answerHandled(page);
   const sent = requests.length;
   await page.locator('#retryBtn').click();
   await page.clock.runFor(50);
@@ -413,21 +424,35 @@ test('if the sign-in token never arrives, the game asks again after 10s; the old
   await skip(page, 1000);
   await expect.poll(() => requests.length).toBe(1);
   await page.evaluate(() => window.__releaseFirstToken());
-  await skip(page, 2000);
+  await page.clock.runFor(50);
+  expect(await proxyFetches(page)).toBe(1);
   expect(requests.map((request) => request.authorization)).toEqual(['Bearer fake-id-token']);
 });
 
 test('a request still open at game over does not hold up the next game', async ({ page }) => {
   test.setTimeout(120000);
-  // The proxy never answers, as if it hung: at game over a request is still open.
-  const requests = await openGame(page, () => new Promise(() => {}), { seed: 3 });
+  const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }), { seed: 3 });
+  // Sign-in tokens hang until the test lets them through, so a request is open at game over and has no fetch timeout.
+  await page.evaluate(() => {
+    const original = firebase.auth().currentUser.getIdToken;
+    window.__tokenAskedAt = [];
+    window.__tokensWork = false;
+    firebase.auth().currentUser.getIdToken = () => {
+      window.__tokenAskedAt.push(Date.now());
+      return window.__tokensWork ? original() : new Promise(() => {});
+    };
+  });
   await engage(page);
   await playUntilGameOver(page);
-  const sent = requests.length;
+  const lastAskAge = await page.evaluate(() => Date.now() - window.__tokenAskedAt.at(-1));
+  // Run until just past the 5s cycle. That must stay short of the old request's 10s give-up, or the test proves nothing.
+  const wait = Math.max(ASK_EVERY_MS - lastAskAge, 0) + 300;
+  expect(lastAskAge + wait).toBeLessThan(9900);
+  await page.evaluate(() => { window.__tokensWork = true; });
   await page.locator('#retryBtn').click();
-  // The new game asks on its 5s cycle, without waiting out the 10s give-up on the old request.
-  await skip(page, ASK_EVERY_MS);
-  await expect.poll(() => requests.length).toBe(sent + 1);
+  await skip(page, wait);
+  expect(await proxyFetches(page)).toBe(1);
+  expect(requests).toHaveLength(1);
 });
 
 test('after the e2e next-wave hook was used, the score is not saved to the leaderboard', async ({ page }) => {
