@@ -25,11 +25,11 @@ function addScore(initials) {
 }
 
 test('ordinary initials are accepted', async () => {
-  for (const initials of ['ACE', 'DAV', 'A', 'JO', 'WTF']) await assertSucceeds(addScore(initials));
+  for (const initials of ['ACE', 'DAV', 'A', 'JO', 'WTF', 'NAZ']) await assertSucceeds(addScore(initials));
 });
 
 test('blocked words are refused', async () => {
-  for (const initials of ['ASS', 'FUK', 'NAZ', 'KKK', 'SS', 'HH']) {
+  for (const initials of ['ASS', 'FUK', 'KYS', 'FUT', 'KKK', 'KZ', 'SS', 'HH']) {
     await assertFails(addScore(initials), `expected ${initials} to be refused`);
   }
 });

@@ -20,11 +20,14 @@ async function playUntilGameOver(page) {
   await expect(page.locator('#gameOverOverlay')).toBeVisible();
 }
 
+// Every frame still renders WebGL, so a game over costs 2-7s of real time, more on a loaded runner.
+test.beforeEach(() => test.setTimeout(120000));
+
 const scoreAdds = (page) => page.evaluate(() => window.__fakeFirestore.adds.map((doc) => doc.initials));
 
 test('the initials step is labelled as initials', async ({ page }) => {
   await reachGameOver(page);
-  await expect(page.locator('#initialsStep')).toContainText('Enter Initials');
+  await expect(page.getByLabel('Enter Initials')).toHaveValue('ACE');
 });
 
 test('blocked initials are not saved and the player is asked for others', async ({ page }) => {
@@ -32,11 +35,13 @@ test('blocked initials are not saved and the player is asked for others', async 
   await page.locator('#initials').fill('ass');
   await page.locator('#submitScoreBtn').click();
   await expect(page.locator('#initialsError')).toBeVisible();
+  await expect(page.locator('#initials')).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('#initialsStep')).toBeVisible();
   expect(await scoreAdds(page)).toEqual([]);
 
   await page.locator('#initials').fill('ACE');
   await expect(page.locator('#initialsError')).toBeHidden();
+  await expect(page.locator('#initials')).toHaveAttribute('aria-invalid', 'false');
   await page.locator('#initials').press('Enter');
   await expect(page.locator('#initialsStep')).toBeHidden();
   expect(await scoreAdds(page)).toEqual(['ACE']);
