@@ -19,6 +19,11 @@ function parseSummary(body) {
   const { wave, player, tanks, sinceLastOrders } = body;
   if (!isInteger(wave, 1, 999)) throw new BadRequest('wave');
   if (!player || !isFiniteNumber(player.yaw, -100, 100) || !isInteger(player.lives, 0, 9)) throw new BadRequest('player');
+  // WF-33: whether any tank sees the player now, and seconds since one last did. A game that sends neither
+  // predates the rule and always knew the player's position: seen now.
+  const seen = player.seen === undefined ? true : player.seen;
+  const lastSeenS = player.lastSeenS === undefined ? 0 : player.lastSeenS;
+  if (typeof seen !== 'boolean' || !isFiniteNumber(lastSeenS, 0, 3600)) throw new BadRequest('player sighting');
   if (!Array.isArray(tanks) || tanks.length < 1 || tanks.length > MAX_TANKS) throw new BadRequest('tanks');
   const ids = new Set();
   const cleanTanks = tanks.map((tank) => {
@@ -33,7 +38,7 @@ function parseSummary(body) {
   if (!isInteger(since.kills, 0, 99) || !isInteger(since.losses, 0, 99)) throw new BadRequest('sinceLastOrders');
   return {
     wave,
-    player: { yaw: round(player.yaw), lives: player.lives },
+    player: { yaw: round(player.yaw), lives: player.lives, seen, lastSeenS: round(lastSeenS) },
     tanks: cleanTanks,
     sinceLastOrders: { kills: since.kills, losses: since.losses },
   };
