@@ -1400,6 +1400,8 @@
 
   function updateEnemies(dt){
     var anyTankSees = false;
+    // Game time, not wall-clock time: a hidden tab freezes the game, so the sighting must not age then.
+    gemini.gameTime += dt;
     enemies.forEach(function(e){
       if (!e.alive) return;
       // Same rule as the player's radar: a tank only knows where the player is while it can see the player.
@@ -1452,7 +1454,7 @@
   }
 
   function setTeamSighting(x, z, yaw){
-    gemini.sighting = { x: x, z: z, yaw: yaw, at: clock.elapsedTime };
+    gemini.sighting = { x: x, z: z, yaw: yaw, at: gemini.gameTime };
   }
 
   /* ════════ enemy tactics: Gemini via the proxy (WF-24/25), scripted 'advance' otherwise ════════ */
@@ -1468,7 +1470,7 @@
   var FLANK_RADIUS = 24, FLANK_SWING = 0.9, HOLD_RANGE = 45, RETREAT_RANGE = 55, ADVANCE_STOP = 16;
   // requestNumber: only the latest request may act; an older one finishing late (after a give-up or a new game) is ignored.
   var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0, requestNumber:0, voicedThisWave:false,
-                 seenNow:true, sighting:{ x:0, z:0, yaw:0, at:0 } };
+                 seenNow:true, sighting:{ x:0, z:0, yaw:0, at:0 }, gameTime:0 };
   // lastAskAt survives a new game on purpose: the proxy answers 'too-soon' to calls under 4s apart.
   function resetGeminiForNewGame(){
     gemini.requestNumber += 1;
@@ -1550,7 +1552,7 @@
       // player.yaw grows without bound while turning; the proxy rejects |yaw| > 100.
       // Only what the tanks know (WF-33): positions and heading from the last sighting, and how old it is.
       player: { yaw: Math.atan2(Math.sin(sighting.yaw), Math.cos(sighting.yaw)), lives: Math.max(G.lives, 0),
-                seen: gemini.seenNow, lastSeenS: Math.min(Math.max(clock.elapsedTime - sighting.at, 0), 3600) },
+                seen: gemini.seenNow, lastSeenS: Math.min(Math.max(gemini.gameTime - sighting.at, 0), 3600) },
       tanks: tanks.map(function(e){
         return { id: e.id, variant: e.variant.name, dx: e.x - sighting.x, dz: e.z - sighting.z, hp: Math.max(e.hp, 0) };
       }),
@@ -2021,7 +2023,8 @@
         enemiesRemainingInWave = enemies.length;
         return e.id;
       });
-      if (spec.teamLastSeen) setTeamSighting(spec.teamLastSeen.x, spec.teamLastSeen.z, spec.teamLastSeen.yaw || 0);
+      var seen = spec.teamLastSeen || { x: player.x, z: player.z, yaw: player.yaw };
+      setTeamSighting(seen.x, seen.z, seen.yaw || 0);
       return ids;
     };
   }
