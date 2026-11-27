@@ -1,115 +1,19 @@
 // Wirefront game script (WF-34: moved out of index.html as an ES module; split further step by step).
 // three.js and Firebase are CDN globals loaded by index.html before this module runs.
-import { ALLY_BODY_R, ALLY_VARIANT, AMBER, ANNOUNCE_BATCH_MS, CALLSIGN_ADJ, CALLSIGN_NOUN, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, ICE_BLUE, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, PRESENCE_HZ_MS, PRESENCE_TIMEOUT_MS, SPAWN_CLEAR, STALE_SWEEP_MS, TANK_VARIANTS, VOID, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
+import { ALLY_BODY_R, ALLY_VARIANT, AMBER, ANNOUNCE_BATCH_MS, CALLSIGN_ADJ, CALLSIGN_NOUN, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, ICE_BLUE, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, PRESENCE_HZ_MS, PRESENCE_TIMEOUT_MS, SPAWN_CLEAR, STALE_SWEEP_MS, TANK_VARIANTS, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
 import { G, clock, eShots, enemies, keepOnly, keys, obstacles, pShots, particles, player, touchDrive } from './state.js';
 import { ensureAudio, playCommsAudio, playCommsJoin, playCommsLeave, playExplosion, playFire, playHit, playTankCollision, resumeAudio, titleMusic, toggleCommsMuted, updateEngineHum } from './audio.js';
 import { titleRippleFrames } from './title.js';
 import { showCommsLine } from './comms.js';
 import { gemini, resetGeminiForNewGame, tacticMoveTarget, updateGeminiTactics, useScriptedTactics } from './gemini.js';
 import { blockScoreSaving, connectLeaderboard, renderBoard, showInitialsError } from './net/leaderboard.js';
+import { camBaseY, camera, canvas, checkBloomFrameRate, composer, forwardOf, renderer, resize, scene, wireGroup } from './scene.js';
 
 var enemiesRemainingInWave = 0;
 var enemyIdCounter = 0;
 var fireHeld = false;
 
 
-
-/* ════════════════════════ three.js setup ════════════════════════ */
-var canvas = document.getElementById('scene');
-var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-var scene = new THREE.Scene();
-scene.background = new THREE.Color(VOID);
-scene.fog = new THREE.Fog(VOID, 90, 300);
-
-var camera = new THREE.PerspectiveCamera(72, 1, 0.1, 500);
-var camBaseY = 1.55;
-
-var composer = null, bloomPass = null, composerUsesDevicePixels = false;
-// Automated browsers (the test suite) render in software, where bloom is very slow; ?bloom opts in.
-var bloomWanted = !navigator.webdriver || new URLSearchParams(location.search).has('bloom');
-var bloomScriptsLoaded = ['CopyShader','LuminosityHighPassShader','EffectComposer','RenderPass','ShaderPass','UnrealBloomPass']
-  .every(function(name){ return THREE[name] !== undefined; });
-if (bloomWanted && bloomScriptsLoaded){
-  try{
-    composer = makeBloomComposer();
-  }catch(e){
-    console.warn('Wirefront: bloom setup failed, using the CSS glow.', e);
-    composer = null;
-  }
-}
-if (!composer) document.body.classList.add('no-bloom');
-
-function makeBloomComposer(){
-  // The composer renders into its own target, which has no antialiasing; on WebGL2 give it a multisampled one.
-  var target;
-  if (renderer.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget){
-    var dpr = renderer.getPixelRatio();
-    target = new THREE.WebGLMultisampleRenderTarget(Math.floor(window.innerWidth*dpr), Math.floor(window.innerHeight*dpr), { format: THREE.RGBAFormat });
-    composerUsesDevicePixels = true;
-  }
-  var c = new THREE.EffectComposer(renderer, target);
-  c.addPass(new THREE.RenderPass(scene, camera));
-  // strength, radius, threshold: a strong, tight glow on lines; the near-black faces stay dark.
-  bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.25, 0.45, 0.08);
-  c.addPass(bloomPass);
-  return c;
-}
-
-function dropBloom(){
-  bloomPass.dispose();
-  composer.renderTarget1.dispose();
-  composer.renderTarget2.dispose();
-  composer = null;
-  document.body.classList.add('no-bloom');
-}
-
-// Bloom costs GPU time. If the first stretch of play runs slower than about 45fps, turn it off.
-var BLOOM_CHECK_FRAMES = 120;
-var BLOOM_MIN_FPS = 45;
-var bloomCheck = { frames: 0, seconds: 0 };
-function checkBloomFrameRate(dt){
-  if (!composer || bloomCheck.frames >= BLOOM_CHECK_FRAMES) return;
-  bloomCheck.frames += 1;
-  bloomCheck.seconds += dt;
-  if (bloomCheck.frames === BLOOM_CHECK_FRAMES && bloomCheck.seconds / BLOOM_CHECK_FRAMES > 1 / BLOOM_MIN_FPS) dropBloom();
-}
-
-function resize(){
-  var w = window.innerWidth, h = window.innerHeight;
-  renderer.setSize(w, h);
-  if (composer){
-    var scale = composerUsesDevicePixels ? renderer.getPixelRatio() : 1;
-    composer.setSize(Math.floor(w*scale), Math.floor(h*scale));
-  }
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-window.addEventListener('resize', resize);
-
-function forwardOf(yaw){
-  return new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0, yaw, 0));
-}
-
-function wireGroup(geometry, edgeColor, fillOcclusion, fillColor){
-  var g = new THREE.Group();
-  if (fillOcclusion !== false){
-    var fillMat = new THREE.MeshLambertMaterial({
-      color: fillColor !== undefined ? fillColor : dimColor(edgeColor, 0.4),
-      flatShading: true,
-      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
-    });
-    var fill = new THREE.Mesh(geometry, fillMat);
-    fill.renderOrder = 0;
-    g.add(fill);
-  }
-  var edges = new THREE.EdgesGeometry(geometry);
-  var lineMat = new THREE.LineBasicMaterial({ color: edgeColor, linewidth: 2 });
-  var lines = new THREE.LineSegments(edges, lineMat);
-  lines.renderOrder = 1;
-  g.add(lines);
-  return g;
-}
 
 /* ════════════════════════ world ════════════════════════ */
 var hemiLight = new THREE.HemisphereLight(0x0e3a20, 0x02100a, 0.65);
