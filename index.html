@@ -660,6 +660,36 @@
     }
   }
 
+  // A search spot is 15-30 units from where the tank last saw the player, inside the arena and clear of obstacles
+  // (a pushed-out tank stays 1.6 units off an obstacle, plus 4 to count as arrived). Given up after SEARCH_SPOT_S
+  // seconds, so a spot the tank cannot reach (a fast tank circling it) does not hold it for good.
+  var SEARCH_RADIUS = 30, SEARCH_SPOT_S = 8, SEARCH_TRIES = 20;
+  function pickSearchSpot(e){
+    var x, z;
+    for (var attempt = 0; attempt < SEARCH_TRIES; attempt++){
+      var ang = Math.random()*Math.PI*2, rad = SEARCH_RADIUS*(0.5 + Math.random()*0.5);
+      x = e.knownX + Math.cos(ang)*rad; z = e.knownZ + Math.sin(ang)*rad;
+      var d = Math.sqrt(x*x + z*z), max = WORLD_R - 10;
+      if (d > max){ x *= max/d; z *= max/d; }
+      if (!obstacles.some(function(o){ return Math.hypot(x-o.x, z-o.z) < o.r + 5.6; })) break;
+    }
+    // After SEARCH_TRIES misses the last try is used; the timeout moves the tank on from it.
+    e.searchSpot = { x: x, z: z, left: SEARCH_SPOT_S };
+  }
+
+  // True when the straight line from (ax, az) to (bx, bz) passes clear of every obstacle (WF-27).
+  function hasLineOfSight(ax, az, bx, bz){
+    var lx = bx-ax, lz = bz-az, len2 = lx*lx+lz*lz;
+    for (var i=0;i<obstacles.length;i++){
+      var o = obstacles[i];
+      var t = len2 > 0 ? ((o.x-ax)*lx + (o.z-az)*lz) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      var cx = ax + lx*t - o.x, cz = az + lz*t - o.z;
+      if (cx*cx + cz*cz < o.r*o.r) return false;
+    }
+    return true;
+  }
+
   function pushOutOfObstacles(pos, bodyR){
     for (var i=0;i<obstacles.length;i++){
       var o = obstacles[i];
@@ -827,6 +857,8 @@
     enemyIdCounter = enemyIdCounter % 9999999 + 1;
     enemies.push({
       id: 't' + enemyIdCounter, tactic: 'advance', tacticSource: 'scripted', geminiMarker: null,
+      // Where the tank last saw the player. A new tank knows where the player is when it arrives.
+      knownX: player.x, knownZ: player.z, searchSpot: null, ping: null,
       mesh: mesh, x:x, z:z, yaw:0, hp:variant.hp, variant:variant,
       speed: Math.min(speed, 8.5),
       fireCd: (1.5+Math.random()*2) / variant.fireMul,
@@ -935,17 +967,43 @@
   }
 
   var radarSweep = 0;
+  var RADAR_SWEEP_RAD_PER_S = reduceMotion ? 0.6 : 2.0;
+  // A ping fades out over one turn of the sweep, just as the sweep comes round to refresh it.
+  var RADAR_PING_FADE_S = Math.PI*2 / RADAR_SWEEP_RAD_PER_S;
+  // Radar time advances with the sweep (frame time, capped like the sweep), so a ping fades per sweep turn even when frames are slow.
+  var radarTime = 0;
+  // What the radar drew in its last frame, in canvas px; read by the e2e probe.
+  var radarDrawn = { blips: [], obstacles: [] };
+
+  // Heading-up radar position of a world point, relative to the radar centre: ahead is up.
+  function radarPoint(x, z, R){
+    var dx = x-player.x, dz = z-player.z;
+    var rel = Math.atan2(-dx,-dz) - player.yaw;
+    var scaled = Math.min(Math.sqrt(dx*dx+dz*dz)/WORLD_R, 1) * R;
+    return { x: -Math.sin(rel)*scaled, y: -Math.cos(rel)*scaled };
+  }
+
   function drawRadar(dt){
     var R = 66;
+    radarDrawn = { blips: [], obstacles: [] };
     radarCx.clearRect(0,0,132,132);
     radarCx.save();
     radarCx.translate(66,66);
 
-    radarSweep += (reduceMotion ? 0.6 : 2.0) * dt;
-    var grd = radarCx.createConic ? null : null;
+    radarSweep = (radarSweep + RADAR_SWEEP_RAD_PER_S * dt) % (Math.PI*2);
+    radarTime += dt;
     radarCx.strokeStyle = 'rgba(61,255,122,.18)';
     radarCx.lineWidth = 1;
     for (var ring=1; ring<=2; ring++){ radarCx.beginPath(); radarCx.arc(0,0,R*ring/2,0,Math.PI*2); radarCx.stroke(); }
+
+    // Terrain: obstacles are always shown, as outlines at their real size (at least 1.5 px).
+    radarCx.strokeStyle = 'rgba(255,176,32,.7)';
+    obstacles.forEach(function(o){
+      var p = radarPoint(o.x, o.z, R);
+      var r = Math.max(o.r * R / WORLD_R, 1.5);
+      radarCx.beginPath(); radarCx.arc(p.x, p.y, r, 0, Math.PI*2); radarCx.stroke();
+      radarDrawn.obstacles.push({ x: 66 + p.x, y: 66 + p.y, r: r });
+    });
 
     radarCx.save();
     radarCx.rotate(radarSweep);
@@ -960,19 +1018,27 @@
     radarCx.fill();
     radarCx.restore();
 
+    // A tank is pinged where it is when the sweep line crosses its blip, if the player can see it; the ping then stays
+    // put and fades. Crossing is judged on the angle between blip and sweep, so it holds while the player turns either way.
     enemies.forEach(function(e){
       if (!e.alive) return;
-      var dx = e.x-player.x, dz = e.z-player.z;
-      var dist = Math.sqrt(dx*dx+dz*dz);
-      var targetAngle = Math.atan2(-dx,-dz);
-      var rel = targetAngle - player.yaw;
-      var scaled = Math.min(dist/WORLD_R, 1) * R;
-      var bx = -Math.sin(rel)*scaled, by = -Math.cos(rel)*scaled;
+      var p = radarPoint(e.x, e.z, R);
+      var gap = ((Math.atan2(p.y, p.x) - radarSweep) % (Math.PI*2) + Math.PI*2) % (Math.PI*2);
+      var crossed = e.radarGap !== undefined && Math.abs(gap - e.radarGap) > Math.PI;
+      e.radarGap = gap;
+      if (crossed && hasLineOfSight(player.x, player.z, e.x, e.z)) e.ping = { x: e.x, z: e.z, at: radarTime };
+      if (!e.ping) return;
+      var alpha = 1 - (radarTime - e.ping.at) / RADAR_PING_FADE_S;
+      if (alpha <= 0) return;
+      var at = radarPoint(e.ping.x, e.ping.z, R);
       var blipColor = '#' + new THREE.Color(e.variant ? e.variant.color : PHOS).getHexString();
+      radarCx.globalAlpha = alpha;
       radarCx.fillStyle = blipColor;
       radarCx.shadowColor = blipColor; radarCx.shadowBlur = 4;
-      radarCx.fillRect(bx-2, by-2, 4, 4);
+      radarCx.fillRect(at.x-2, at.y-2, 4, 4);
+      radarDrawn.blips.push({ id: e.id, x: 66 + at.x, y: 66 + at.y, alpha: alpha });
     });
+    radarCx.globalAlpha = 1;
     radarCx.shadowBlur = 0;
 
     radarCx.fillStyle = '#eafff1';
@@ -1333,10 +1399,21 @@
   function updateEnemies(dt){
     enemies.forEach(function(e){
       if (!e.alive) return;
-      var dx = player.x-e.x, dz = player.z-e.z;
+      // Same rule as the player's radar: a tank only knows where the player is while it can see the player.
+      var seesPlayer = hasLineOfSight(e.x, e.z, player.x, player.z);
+      if (seesPlayer){ e.knownX = player.x; e.knownZ = player.z; }
+      var dx = e.knownX-e.x, dz = e.knownZ-e.z;
       var dist = Math.sqrt(dx*dx+dz*dz);
-      // Without a move target the tank turns to face the player; with one it turns towards the target.
+      // Without a move target the tank turns to face where it last saw the player; with one it turns towards the target.
       var moveTo = tacticMoveTarget(e, dist);
+      // Lost the player with nowhere left to go: search spots near the last sighting instead of parking for good.
+      // Whatever the tactic, a searching tank drives to its spot, then picks the next, until it sees the player again.
+      if (seesPlayer) e.searchSpot = null;
+      else if (e.searchSpot || !moveTo){
+        if (e.searchSpot) e.searchSpot.left -= dt;
+        if (!e.searchSpot || e.searchSpot.left <= 0 || Math.hypot(e.searchSpot.x-e.x, e.searchSpot.z-e.z) < 4) pickSearchSpot(e);
+        moveTo = { x: e.searchSpot.x, z: e.searchSpot.z };
+      }
       var aimX = moveTo ? moveTo.x - e.x : dx, aimZ = moveTo ? moveTo.z - e.z : dz;
       var steerYaw = Math.atan2(-aimX, -aimZ);
       var steerDiff = ((steerYaw - e.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
@@ -1355,7 +1432,7 @@
       }
 
       e.fireCd -= dt;
-      if (e.fireCd <= 0 && dist < 70 && Math.abs(diff) < 0.6){
+      if (seesPlayer && e.fireCd <= 0 && dist < 70 && Math.abs(diff) < 0.6){
         fireEnemyShot(e);
         e.fireCd = 2.2 + Math.random()*2 - Math.min(G.wave*0.12, 1.4);
         // Tuned by eye: holding tanks fire about 40% more often, the point of suppressing.
@@ -1393,9 +1470,9 @@
   var scoreSavingBlocked = false;
   var radarLabel = document.getElementById('radarLabel');
 
-  // The point a tank drives towards for its tactic, or null to stay put.
+  // The point a tank drives towards for its tactic, or null to stay put. Relative to where it last saw the player.
   function tacticMoveTarget(e, dist){
-    var px = player.x, pz = player.z;
+    var px = e.knownX, pz = e.knownZ;
     if (e.tactic === 'flank_left' || e.tactic === 'flank_right'){
       var bearing = Math.atan2(e.x-px, e.z-pz) + (e.tactic === 'flank_left' ? FLANK_SWING : -FLANK_SWING);
       return { x: px + Math.sin(bearing)*FLANK_RADIUS, z: pz + Math.cos(bearing)*FLANK_RADIUS };
@@ -1899,15 +1976,37 @@
     window.__wirefrontProbe = function(){
       return {
         state: G.state, x: player.x, z: player.z, yaw: player.yaw, playerShots: pShots.length, bloom: !!composer, geminiInFlight: gemini.inFlight,
+        enemyShots: eShots.length, radar: radarDrawn,
         enemies: enemies.filter(function(e){ return e.alive; }).map(function(e){
           return { id: e.id, tactic: e.tactic, source: e.tacticSource, marker: !!(e.geminiMarker && e.geminiMarker.visible),
-            dist: Math.hypot(e.x - player.x, e.z - player.z), bearing: Math.atan2(e.x - player.x, e.z - player.z) };
+            x: e.x, z: e.z, lastSeen: { x: e.knownX, z: e.knownZ }, searchSpot: e.searchSpot && { x: e.searchSpot.x, z: e.searchSpot.z }, dist: Math.hypot(e.x - player.x, e.z - player.z), bearing: Math.atan2(e.x - player.x, e.z - player.z) };
         }),
       };
     };
-    // The one e2e hook that changes state: starts the next wave the way clearing a wave does (WF-25 tests).
-    // Anyone can add ?e2e, so a tab that used it never saves a score to the public leaderboard.
+    // The e2e hooks that change state. Anyone can add ?e2e, so a tab that used one never saves a score to the leaderboard.
+    // Starts the next wave the way clearing a wave does (WF-25 tests).
     window.__wirefrontNextWave = function(){ scoreSavingBlocked = true; nextWave(); };
+    // Puts the player at (0, 0) facing -z and replaces the obstacles and tanks with the given ones (WF-27 tests).
+    // spec: { obstacles: [{x, z, r}], enemies: [{x, z, yaw?, speed?, tactic?, lastSeen?: {x, z}}] }. Returns the tank ids.
+    window.__wirefrontArrange = function(spec){
+      scoreSavingBlocked = true;
+      player.x = 0; player.z = 0; player.yaw = 0; player.turnVel = 0; player.throttleVel = 0;
+      obstacles.forEach(function(o){ scene.remove(o.mesh); });
+      obstacles = spec.obstacles.map(function(o){ return { mesh: new THREE.Group(), x: o.x, z: o.z, r: o.r }; });
+      enemies.forEach(function(e){ scene.remove(e.mesh); });
+      enemies = [];
+      return spec.enemies.map(function(t){
+        spawnEnemy();
+        var e = enemies[enemies.length - 1];
+        e.x = t.x; e.z = t.z; e.yaw = t.yaw || 0;
+        if (t.speed !== undefined) e.speed = t.speed;
+        if (t.lastSeen){ e.knownX = t.lastSeen.x; e.knownZ = t.lastSeen.z; }
+        if (t.tactic) e.tactic = t.tactic;
+        e.mesh.position.set(e.x, 0, e.z);
+        enemiesRemainingInWave = enemies.length;
+        return e.id;
+      });
+    };
   }
 
   boot();
