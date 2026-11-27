@@ -13,20 +13,6 @@ var enemyIdCounter = 0;
 var fireHeld = false;
 
 
-var rtdb = null, presenceRef = null;
-var serverTimeOffsetMs = 0;
-function serverNow(){ return Date.now() + serverTimeOffsetMs; }
-// The anonymous Firebase Auth uid. The RTDB rules only let a player write the entry under their own uid,
-// so each account can hold one tank.
-var clientId = null;
-var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
-var allies = {};
-var alliesColliding = {};
-var lastPresenceSend = 0;
-var lastStaleSweep = 0;
-var alliesReady = false;
-var joinBuffer = [], leaveBuffer = [];
-var announceFlushTimer = null;
 
 /* ════════════════════════ three.js setup ════════════════════════ */
 var canvas = document.getElementById('scene');
@@ -949,6 +935,55 @@ function updateParticles(dt){
 }
 
 /* ════════════════════════ co-op presence (rtdb) ════════════════════════ */
+var rtdb = null, presenceRef = null;
+var serverTimeOffsetMs = 0;
+function serverNow(){ return Date.now() + serverTimeOffsetMs; }
+// The anonymous Firebase Auth uid. The RTDB rules only let a player write the entry under their own uid,
+// so each account can hold one tank.
+var clientId = null;
+var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
+var allies = {};
+var alliesColliding = {};
+var lastPresenceSend = 0;
+var lastStaleSweep = 0;
+var alliesReady = false;
+var joinBuffer = [], leaveBuffer = [];
+var announceFlushTimer = null;
+
+// After firebase.initializeApp: sign in anonymously and join the shared room, or play on without co-op.
+function connectPresence(){
+  try{
+    rtdb = firebase.database();
+    // Session persistence gives each tab its own anonymous uid, so two tabs are two tanks, not one shared entry.
+    var auth = firebase.auth();
+    auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).then(function(){
+      return auth.signInAnonymously();
+    }).then(joinRoom, function(error){
+      console.warn('Wirefront: anonymous sign-in failed, playing without co-op presence.', error);
+    });
+  }catch(e){
+    rtdb = null;
+  }
+}
+
+function joinRoom(credential){
+  clientId = credential.user.uid;
+  presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
+  presenceRef.onDisconnect().remove();
+  rtdb.ref('.info/serverTimeOffset').on('value', function(snap){ serverTimeOffsetMs = snap.val() || 0; });
+  subscribeAllies();
+}
+
+// Once per frame: move the ally tanks, send our own position, and sweep stale allies every few seconds.
+function tickPresence(dt){
+  updateAllies(dt);
+  var presenceNow = performance.now();
+  sendPresence(presenceNow);
+  if (presenceNow - lastStaleSweep >= STALE_SWEEP_MS){
+    lastStaleSweep = presenceNow;
+    sweepStaleAllies();
+  }
+}
 var PLAYERS_PATH = 'rooms/global/players';
 
 function addAlly(id, data){
@@ -1086,13 +1121,7 @@ function animate(){
     updateEngineHum(0);
   }
   updateCamera(dt, time);
-  updateAllies(dt);
-  var presenceNow = performance.now();
-  sendPresence(presenceNow);
-  if (presenceNow - lastStaleSweep >= STALE_SWEEP_MS){
-    lastStaleSweep = presenceNow;
-    sweepStaleAllies();
-  }
+  tickPresence(dt);
   drawRadar(dt);
   updateGridPulse(time);
   updateGeminiTactics(time);
@@ -1111,27 +1140,9 @@ function boot(){
   }catch(e){ /* the leaderboard and presence fall back to offline */ }
   connectLeaderboard();
 
-  try{
-    rtdb = firebase.database();
-    // Session persistence gives each tab its own anonymous uid, so two tabs are two tanks, not one shared entry.
-    var auth = firebase.auth();
-    auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).then(function(){
-      return auth.signInAnonymously();
-    }).then(joinRoom, function(error){
-      console.warn('Wirefront: anonymous sign-in failed, playing without co-op presence.', error);
-    });
-  }catch(e){
-    rtdb = null;
-  }
+  connectPresence();
 }
 
-function joinRoom(credential){
-  clientId = credential.user.uid;
-  presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
-  presenceRef.onDisconnect().remove();
-  rtdb.ref('.info/serverTimeOffset').on('value', function(snap){ serverTimeOffsetMs = snap.val() || 0; });
-  subscribeAllies();
-}
 
 // ?e2e&showcase lines up every tank variant in front of the camera, for tests and design reviews (WF-21).
 var testParams = new URLSearchParams(location.search);
