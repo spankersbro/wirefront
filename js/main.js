@@ -1,13 +1,14 @@
 // Wirefront game script (WF-34: moved out of index.html as an ES module; split further step by step).
 // three.js and Firebase are CDN globals loaded by index.html before this module runs.
-import { ALLY_BODY_R, ALLY_VARIANT, AMBER, ANNOUNCE_BATCH_MS, CALLSIGN_ADJ, CALLSIGN_NOUN, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, ICE_BLUE, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, PRESENCE_HZ_MS, PRESENCE_TIMEOUT_MS, SPAWN_CLEAR, STALE_SWEEP_MS, TANK_VARIANTS, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
+import { ALLY_BODY_R, ALLY_VARIANT, AMBER, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, SPAWN_CLEAR, TANK_VARIANTS, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
 import { G, clock, eShots, enemies, keepOnly, keys, obstacles, pShots, particles, player, touchDrive } from './state.js';
-import { ensureAudio, playCommsAudio, playCommsJoin, playCommsLeave, playExplosion, playFire, playHit, playTankCollision, resumeAudio, titleMusic, toggleCommsMuted, updateEngineHum } from './audio.js';
+import { ensureAudio, playExplosion, playFire, playHit, playTankCollision, resumeAudio, titleMusic, toggleCommsMuted, updateEngineHum } from './audio.js';
 import { titleRippleFrames } from './title.js';
-import { showCommsLine } from './comms.js';
 import { gemini, resetGeminiForNewGame, tacticMoveTarget, updateGeminiTactics, useScriptedTactics } from './gemini.js';
 import { blockScoreSaving, connectLeaderboard, renderBoard, showInitialsError } from './net/leaderboard.js';
 import { camBaseY, camera, canvas, checkBloomFrameRate, composer, forwardOf, renderer, resize, scene, wireGroup } from './scene.js';
+import { makeEnemyMesh } from './tanks.js';
+import { allies, alliesColliding, connectPresence, tickPresence } from './net/presence.js';
 
 var enemiesRemainingInWave = 0;
 var enemyIdCounter = 0;
@@ -213,101 +214,7 @@ function pushOutOfAllies(pos, bodyR, dt){
   }
 }
 
-/* ════════════════════════ enemy tanks ════════════════════════ */
-// Side profile (x forward, y up) extruded across the tank's width; the result points down -z like the camera.
-function profileGeometry(points, width){
-  var shape = new THREE.Shape();
-  shape.moveTo(points[0][0], points[0][1]);
-  for (var i=1;i<points.length;i++) shape.lineTo(points[i][0], points[i][1]);
-  shape.closePath();
-  var geo = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false });
-  geo.translate(0, 0, -width/2);
-  geo.rotateY(Math.PI/2);
-  return geo;
-}
-
-function lightStrip(points, color){
-  var geo = new THREE.BufferGeometry().setFromPoints(points.map(function(p){ return new THREE.Vector3(p[0], p[1], p[2]); }));
-  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color }));
-}
-
-// WF-21: low, sleek Tron-style tank. Dark faces, bright edges, white-hot light strips for the bloom to catch.
-function makeEnemyMesh(variant){
-  var c = variant.color, cDim = dimColor(c, 0.12);
-  var glow = new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.55).getHex();
-  var g = new THREE.Group();
-
-  var hull = wireGroup(profileGeometry([[-1.5,0.15],[1.45,0.15],[1.85,0.42],[1.0,0.78],[-1.25,0.74],[-1.55,0.42]], 1.9), c, true, cDim);
-  g.add(hull);
-
-  [-1.12, 1.12].forEach(function(sx){
-    var pod = wireGroup(profileGeometry([[-1.6,0.05],[1.6,0.05],[1.78,0.3],[1.5,0.55],[-1.5,0.55],[-1.75,0.3]], 0.34), c, true, cDim);
-    pod.position.x = sx;
-    g.add(pod);
-    g.add(lightStrip([[sx + Math.sign(sx)*0.18, 0.3, 1.7], [sx + Math.sign(sx)*0.18, 0.3, -1.72]], glow));
-  });
-  // Rises to 0.72 at the front so the crossbar sits just above the sloped hull top.
-  g.add(lightStrip([[-0.96, 0.6, 1.3], [-0.96, 0.72, -1.2], [0.96, 0.72, -1.2], [0.96, 0.6, 1.3]], glow));
-
-  var turret = wireGroup(new THREE.CylinderGeometry(0.55, 0.82, 0.42, 6), c, true, cDim);
-  turret.position.set(0, 0.97, 0.15);
-  g.add(turret);
-  var ring = [];
-  for (var i=0;i<=6;i++){
-    var a = i/6*Math.PI*2;
-    // CylinderGeometry puts its corners at (sin, cos); match it so the ring follows the turret's hexagon.
-    ring.push([Math.sin(a)*0.84, 0.79, 0.15 + Math.cos(a)*0.84]);
-  }
-  g.add(lightStrip(ring, glow));
-
-  var heavy = variant.name === 'heavy', scout = variant.name === 'scout';
-  var barrelLen = heavy ? 2.0 : 2.4;
-  var barrelR = heavy ? 0.11 : (scout ? 0.055 : 0.075);
-  (heavy ? [-0.22, 0.22] : [0]).forEach(function(bx){
-    var barrel = wireGroup(new THREE.CylinderGeometry(barrelR, barrelR*1.2, barrelLen, 8), c, true, cDim);
-    barrel.rotation.x = Math.PI/2;
-    barrel.position.set(bx, 1.0, -0.45-barrelLen/2);
-    g.add(barrel);
-  });
-
-  if (scout){
-    [-0.55, 0.55].forEach(function(fx){
-      var fin = wireGroup(profileGeometry([[-1.45,0.72],[-0.8,0.72],[-1.3,1.25]], 0.06), c, true, cDim);
-      fin.position.x = fx;
-      g.add(fin);
-    });
-  }
-
-  g.scale.setScalar(variant.scale);
-  return g;
-}
-
-function makeNameTag(text){
-  var cv = document.createElement('canvas');
-  cv.width = 256; cv.height = 64;
-  var cx = cv.getContext('2d');
-  cx.font = "700 30px 'Orbitron', sans-serif";
-  cx.textAlign = 'center';
-  cx.textBaseline = 'middle';
-  cx.shadowColor = '#' + new THREE.Color(ICE_BLUE).getHexString();
-  cx.shadowBlur = 10;
-  cx.fillStyle = '#eafff1';
-  cx.fillText(text, 128, 32);
-  var tex = new THREE.CanvasTexture(cv);
-  var mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthWrite:false });
-  var sprite = new THREE.Sprite(mat);
-  sprite.scale.set(4.2, 1.05, 1);
-  sprite.position.y = 2.6;
-  return sprite;
-}
-
-function makeAllyGroup(name){
-  var g = new THREE.Group();
-  g.add(makeEnemyMesh(ALLY_VARIANT));
-  g.add(makeNameTag(name));
-  return g;
-}
-
+/* ════════════════════════ tank spawning ════════════════════════ */
 function pickVariant(){
   var roll = Math.random();
   if (G.wave >= 3 && roll < 0.2) return TANK_VARIANTS[2];
@@ -836,177 +743,6 @@ function updateParticles(dt){
     if (!keep) scene.remove(p.mesh);
     return keep;
   });
-}
-
-/* ════════════════════════ co-op presence (rtdb) ════════════════════════ */
-var rtdb = null, presenceRef = null;
-var serverTimeOffsetMs = 0;
-function serverNow(){ return Date.now() + serverTimeOffsetMs; }
-// The anonymous Firebase Auth uid. The RTDB rules only let a player write the entry under their own uid,
-// so each account can hold one tank.
-var clientId = null;
-var callsign = CALLSIGN_ADJ[Math.floor(Math.random()*CALLSIGN_ADJ.length)] + ' ' + CALLSIGN_NOUN[Math.floor(Math.random()*CALLSIGN_NOUN.length)];
-var allies = {};
-var alliesColliding = {};
-var lastPresenceSend = 0;
-var lastStaleSweep = 0;
-var alliesReady = false;
-var joinBuffer = [], leaveBuffer = [];
-var announceFlushTimer = null;
-
-// After firebase.initializeApp: sign in anonymously and join the shared room, or play on without co-op.
-function connectPresence(){
-  try{
-    rtdb = firebase.database();
-    // Session persistence gives each tab its own anonymous uid, so two tabs are two tanks, not one shared entry.
-    var auth = firebase.auth();
-    auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).then(function(){
-      return auth.signInAnonymously();
-    }).then(joinRoom, function(error){
-      console.warn('Wirefront: anonymous sign-in failed, playing without co-op presence.', error);
-    });
-  }catch(e){
-    rtdb = null;
-  }
-}
-
-function joinRoom(credential){
-  clientId = credential.user.uid;
-  presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
-  presenceRef.onDisconnect().remove();
-  rtdb.ref('.info/serverTimeOffset').on('value', function(snap){ serverTimeOffsetMs = snap.val() || 0; });
-  subscribeAllies();
-}
-
-// Once per frame: move the ally tanks, send our own position, and sweep stale allies every few seconds.
-function tickPresence(dt){
-  updateAllies(dt);
-  var presenceNow = performance.now();
-  sendPresence(presenceNow);
-  if (presenceNow - lastStaleSweep >= STALE_SWEEP_MS){
-    lastStaleSweep = presenceNow;
-    sweepStaleAllies();
-  }
-}
-var PLAYERS_PATH = 'rooms/global/players';
-
-function addAlly(id, data){
-  var name = String(data.name || '???').slice(0,24) || '???';
-  var group = makeAllyGroup(name);
-  scene.add(group);
-  allies[id] = {
-    group: group, name: name,
-    x: data.x||0, z: data.z||0, yaw: data.yaw||0,
-    targetX: data.x||0, targetZ: data.z||0, targetYaw: data.yaw||0,
-    t: data.t || serverNow()
-  };
-}
-
-function updateAllyTarget(id, data){
-  var a = allies[id];
-  if (!a){ addAlly(id, data); return; }
-  a.targetX = data.x||0; a.targetZ = data.z||0; a.targetYaw = data.yaw||0;
-  a.t = data.t || serverNow();
-}
-
-// presence writes are throttled to every PRESENCE_HZ_MS, but a tab can vanish
-// without onDisconnect firing (crash, force-quit, killed network) and leave a
-// frozen tank behind. Sweep out any ally whose last update is stale and drop
-// its rtdb entry so every client converges on the same removal.
-function sweepStaleAllies(){
-  if (!rtdb) return;
-  // Presence t is server time; the rules check staleness against server time too.
-  var cutoff = serverNow() - PRESENCE_TIMEOUT_MS;
-  for (var id in allies){
-    if (allies[id].t < cutoff) rtdb.ref(PLAYERS_PATH + '/' + id).remove().catch(function(){});
-  }
-}
-
-function removeAlly(id){
-  var a = allies[id];
-  if (!a) return;
-  scene.remove(a.group);
-  delete allies[id];
-  delete alliesColliding[id];
-}
-
-function subscribeAllies(){
-  var ref = rtdb.ref(PLAYERS_PATH);
-  // 'child_added' fires once per existing player the instant we subscribe,
-  // then again for every future arrival — the one-time 'value' below tells
-  // us when that initial backlog is done, so only later ones get announced.
-  ref.on('child_added', function(snap){
-    if (snap.key === clientId || allies[snap.key]) return;
-    addAlly(snap.key, snap.val() || {});
-    if (alliesReady) queueJoin(allies[snap.key].name);
-  });
-  ref.on('child_changed', function(snap){
-    if (snap.key === clientId) return;
-    updateAllyTarget(snap.key, snap.val() || {});
-  });
-  ref.on('child_removed', function(snap){
-    if (snap.key === clientId || !allies[snap.key]) return;
-    var name = allies[snap.key].name;
-    removeAlly(snap.key);
-    if (alliesReady) queueLeave(name);
-  });
-  ref.once('value', function(){ alliesReady = true; });
-}
-
-/* ── join/leave announcements: batched so a burst of arrivals reads as
-   one line and one sound/voice line, never one per player ── */
-
-function queueJoin(name){ joinBuffer.push(name); scheduleAnnounceFlush(); }
-function queueLeave(name){ leaveBuffer.push(name); scheduleAnnounceFlush(); }
-
-function scheduleAnnounceFlush(){
-  if (announceFlushTimer) return;
-  announceFlushTimer = setTimeout(flushAnnouncements, ANNOUNCE_BATCH_MS);
-}
-
-function flushAnnouncements(){
-  announceFlushTimer = null;
-  var joins = joinBuffer, leaves = leaveBuffer;
-  joinBuffer = []; leaveBuffer = [];
-  if (joins.length) announceBatch(joins, 'join');
-  if (leaves.length) announceBatch(leaves, 'leave');
-}
-
-function announceBatch(names, kind){
-  var isJoin = kind === 'join';
-  var lineText = names.length === 1
-    ? names[0] + ' ' + (isJoin ? 'ON GRID' : 'OFFLINE')
-    : names.length + ' PILOTS ' + (isJoin ? 'ON GRID' : 'OFFLINE');
-  showCommsLine(lineText, kind);
-  playCommsAudio(isJoin ? playCommsJoin : playCommsLeave, names.length === 1
-    ? names[0] + (isJoin ? ' has entered the field' : ' has left the field')
-    : names.length + ' pilots have ' + (isJoin ? 'entered the field' : 'left the field'));
-}
-
-function sendPresence(nowMs){
-  if (!presenceRef) return;
-  if (nowMs - lastPresenceSend < PRESENCE_HZ_MS) return;
-  lastPresenceSend = nowMs;
-  presenceRef.set({
-    name: callsign,
-    x: Math.round(player.x*100)/100,
-    z: Math.round(player.z*100)/100,
-    yaw: Math.round(player.yaw*100)/100,
-    t: firebase.database.ServerValue.TIMESTAMP
-  });
-}
-
-function updateAllies(dt){
-  var lerpT = 1 - Math.pow(0.001, dt/0.15);
-  for (var id in allies){
-    var a = allies[id];
-    a.x += (a.targetX - a.x) * lerpT;
-    a.z += (a.targetZ - a.z) * lerpT;
-    var diff = ((a.targetYaw - a.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
-    a.yaw += diff * lerpT;
-    a.group.position.set(a.x, 0, a.z);
-    a.group.rotation.y = a.yaw;
-  }
 }
 
 /* ════════════════════════ main loop ════════════════════════ */
