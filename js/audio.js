@@ -1,4 +1,5 @@
 // Sound: engine hum, effects, comms chime and speech, the comms mute, and the title music (WF-34).
+import { ANNOUNCE_MIN_AUDIO_GAP_MS } from './config.js';
 import { G } from './state.js';
 /* ════════════════════════ audio ════════════════════════ */
 export let speechReady = ('speechSynthesis' in window) && (typeof SpeechSynthesisUtterance !== 'undefined');
@@ -240,3 +241,14 @@ export const titleMusic = (function(){
     notes: function(){ return notes; }
   };
 })();
+
+// Chime plus voice line, unless muted or another voice line played in the last 4 s.
+export let lastAnnounceAudioAt = -Infinity;
+export function playCommsAudio(chime, speech){
+  if (commsMuted) return;
+  var now = performance.now();
+  if (now - lastAnnounceAudioAt < ANNOUNCE_MIN_AUDIO_GAP_MS) return;
+  lastAnnounceAudioAt = now;
+  chime();
+  speakAnnouncement(speech);
+}

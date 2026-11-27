@@ -1,11 +1,14 @@
 // Wirefront game script (WF-34: moved out of index.html as an ES module; split further step by step).
 // three.js and Firebase are CDN globals loaded by index.html before this module runs.
-import { ALLY_BODY_R, ALLY_VARIANT, AMBER, ANNOUNCE_BATCH_MS, ANNOUNCE_MIN_AUDIO_GAP_MS, CALLSIGN_ADJ, CALLSIGN_NOUN, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, ICE_BLUE, MAX_COMMS_LINES, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, PRESENCE_HZ_MS, PRESENCE_TIMEOUT_MS, SPAWN_CLEAR, STALE_SWEEP_MS, TANK_VARIANTS, VOID, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
-import { G, eShots, enemies, keepOnly, keys, obstacles, pShots, particles, player, touchDrive } from './state.js';
-import { commsMuted, ensureAudio, playBlip, playCommsJoin, playCommsLeave, playExplosion, playFire, playHit, playTankCollision, resumeAudio, speakAnnouncement, titleMusic, toggleCommsMuted, updateEngineHum } from './audio.js';
+import { ALLY_BODY_R, ALLY_VARIANT, AMBER, ANNOUNCE_BATCH_MS, CALLSIGN_ADJ, CALLSIGN_NOUN, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, ICE_BLUE, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, PRESENCE_HZ_MS, PRESENCE_TIMEOUT_MS, SPAWN_CLEAR, STALE_SWEEP_MS, TANK_VARIANTS, VOID, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
+import { G, clock, eShots, enemies, keepOnly, keys, obstacles, pShots, particles, player, touchDrive } from './state.js';
+import { ensureAudio, playBlip, playCommsAudio, playCommsJoin, playCommsLeave, playExplosion, playFire, playHit, playTankCollision, resumeAudio, titleMusic, toggleCommsMuted, updateEngineHum } from './audio.js';
 import { titleRippleFrames } from './title.js';
+import { showCommsLine } from './comms.js';
 
 var enemiesRemainingInWave = 0;
+var enemyIdCounter = 0;
+var scoreSavingBlocked = false;
 var fireHeld = false;
 
 var topScores = [];
@@ -25,7 +28,6 @@ var lastStaleSweep = 0;
 var alliesReady = false;
 var joinBuffer = [], leaveBuffer = [];
 var announceFlushTimer = null;
-var lastAnnounceAudioAt = -Infinity;
 
 /* ════════════════════════ three.js setup ════════════════════════ */
 var canvas = document.getElementById('scene');
@@ -897,8 +899,6 @@ function resetGeminiForNewGame(){
   gemini.playerHits = 0;
   gemini.tanksLost = 0;
 }
-var enemyIdCounter = 0;
-var scoreSavingBlocked = false;
 var radarLabel = document.getElementById('radarLabel');
 
 // The point a tank drives towards for its tactic, or null to stay put. Relative to where it last saw the player.
@@ -1245,7 +1245,6 @@ function subscribeAllies(){
 
 /* ── join/leave announcements: batched so a burst of arrivals reads as
    one line and one sound/voice line, never one per player ── */
-var commsFeed = document.getElementById('commsFeed');
 
 function queueJoin(name){ joinBuffer.push(name); scheduleAnnounceFlush(); }
 function queueLeave(name){ leaveBuffer.push(name); scheduleAnnounceFlush(); }
@@ -1272,31 +1271,6 @@ function announceBatch(names, kind){
   playCommsAudio(isJoin ? playCommsJoin : playCommsLeave, names.length === 1
     ? names[0] + (isJoin ? ' has entered the field' : ' has left the field')
     : names.length + ' pilots have ' + (isJoin ? 'entered the field' : 'left the field'));
-}
-
-// Chime plus voice line, unless muted or another voice line played in the last 4s.
-function playCommsAudio(chime, speech){
-  if (commsMuted) return;
-  var now = performance.now();
-  if (now - lastAnnounceAudioAt < ANNOUNCE_MIN_AUDIO_GAP_MS) return;
-  lastAnnounceAudioAt = now;
-  chime();
-  speakAnnouncement(speech);
-}
-
-function showCommsLine(text, kind){
-  var line = document.createElement('div');
-  line.className = 'comms-line' + (kind === 'leave' || kind === 'gemini' ? ' ' + kind : '');
-  line.textContent = text;
-  commsFeed.appendChild(line);
-  requestAnimationFrame(function(){ line.classList.add('show'); });
-  while (commsFeed.children.length > MAX_COMMS_LINES){
-    commsFeed.removeChild(commsFeed.firstChild);
-  }
-  setTimeout(function(){
-    line.classList.remove('show');
-    setTimeout(function(){ if (line.parentNode) line.parentNode.removeChild(line); }, 400);
-  }, 3200);
 }
 
 function sendPresence(nowMs){
@@ -1326,7 +1300,6 @@ function updateAllies(dt){
 }
 
 /* ════════════════════════ main loop ════════════════════════ */
-var clock = new THREE.Clock();
 function animate(){
   requestAnimationFrame(animate);
   var dt = Math.min(clock.getDelta(), 0.05);

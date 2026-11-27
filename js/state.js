@@ -25,3 +25,6 @@ export function keepOnly(list, keep){
   list.length = 0;
   Array.prototype.push.apply(list, kept);
 }
+
+// The game clock. three.js is a CDN global loaded before the modules.
+export const clock = new THREE.Clock();
