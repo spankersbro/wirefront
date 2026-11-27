@@ -1,28 +1,10 @@
 // Wirefront game script (WF-34: moved out of index.html as an ES module; split further step by step).
 // three.js and Firebase are CDN globals loaded by index.html before this module runs.
 import { ALLY_BODY_R, ALLY_VARIANT, AMBER, ANNOUNCE_BATCH_MS, ANNOUNCE_MIN_AUDIO_GAP_MS, CALLSIGN_ADJ, CALLSIGN_NOUN, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, ICE_BLUE, MAX_COMMS_LINES, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, PRESENCE_HZ_MS, PRESENCE_TIMEOUT_MS, SPAWN_CLEAR, STALE_SWEEP_MS, TANK_VARIANTS, VOID, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
+import { G, eShots, enemies, keepOnly, keys, obstacles, pShots, particles, player, touchDrive } from './state.js';
 
-/* ════════════════════════ state ════════════════════════ */
-var G = {
-  state: 'title',
-  score: 0,
-  wave: 1,
-  lives: 3,
-  invuln: 0,
-  lastFire: -10,
-  hintFaded: false
-};
-var keys = {};
-var touchDrive = { active:false, throttle:0, turn:0 };
-var fireHeld = false;
-
-var player = { x:0, z:0, yaw:0, turnVel:0, throttleVel:0 };
-var enemies = [];
-var pShots = [];
-var eShots = [];
-var particles = [];
-var obstacles = [];
 var enemiesRemainingInWave = 0;
+var fireHeld = false;
 
 var topScores = [];
 var db = null, userCap = null;
@@ -42,7 +24,6 @@ var alliesReady = false;
 var joinBuffer = [], leaveBuffer = [];
 var announceFlushTimer = null;
 var lastAnnounceAudioAt = -Infinity;
-var speechReady = ('speechSynthesis' in window) && (typeof SpeechSynthesisUtterance !== 'undefined');
 
 /* ════════════════════════ three.js setup ════════════════════════ */
 var canvas = document.getElementById('scene');
@@ -225,7 +206,7 @@ function updateGridPulse(time){
 
 function scatterObstacles(){
   obstacles.forEach(function(o){ scene.remove(o.mesh); });
-  obstacles = [];
+  obstacles.length = 0;
   var count = 16;
   for (var i=0;i<count;i++){
     var ang = Math.random()*Math.PI*2;
@@ -465,7 +446,7 @@ function spawnEnemy(){
 
 function spawnWave(n){
   enemies.forEach(function(e){ scene.remove(e.mesh); });
-  enemies = [];
+  enemies.length = 0;
   scatterObstacles();
   var count = Math.min(3+Math.floor((n-1)*1.3), 10);
   for (var i=0;i<count;i++) spawnEnemy();
@@ -649,6 +630,7 @@ function drawRadar(dt){
 }
 
 /* ════════════════════════ audio ════════════════════════ */
+var speechReady = ('speechSynthesis' in window) && (typeof SpeechSynthesisUtterance !== 'undefined');
 var actx = null, engineOsc = null, engineGain = null, engineFilter = null;
 function ensureAudio(){
   if (actx) return;
@@ -893,9 +875,9 @@ function startGame(){
   G.score = 0; G.wave = 1; G.lives = 3;
   resetPlayer();
   resetGeminiForNewGame();
-  pShots.forEach(function(s){ scene.remove(s.mesh); }); pShots = [];
-  eShots.forEach(function(s){ scene.remove(s.mesh); }); eShots = [];
-  particles.forEach(function(p){ scene.remove(p.mesh); }); particles = [];
+  pShots.forEach(function(s){ scene.remove(s.mesh); }); pShots.length = 0;
+  eShots.forEach(function(s){ scene.remove(s.mesh); }); eShots.length = 0;
+  particles.forEach(function(p){ scene.remove(p.mesh); }); particles.length = 0;
   spawnWave(1);
   G.state = 'playing';
   titleOverlay.hidden = true;
@@ -1226,7 +1208,7 @@ function announceGeminiOrders(changed){
 }
 
 function updateShots(dt){
-  pShots = pShots.filter(function(s){
+  keepOnly(pShots, function(s){
     s.x += s.vx*dt; s.z += s.vz*dt; s.life -= dt;
     s.mesh.position.x = s.x; s.mesh.position.z = s.z;
     var hitSomething = false;
@@ -1273,7 +1255,7 @@ function updateShots(dt){
     return keep;
   });
 
-  eShots = eShots.filter(function(s){
+  keepOnly(eShots, function(s){
     s.x += s.vx*dt; s.z += s.vz*dt; s.life -= dt;
     s.mesh.position.x = s.x; s.mesh.position.z = s.z;
     var dx = s.x-player.x, dz = s.z-player.z;
@@ -1286,7 +1268,7 @@ function updateShots(dt){
 }
 
 function updateParticles(dt){
-  particles = particles.filter(function(p){
+  keepOnly(particles, function(p){
     p.life -= dt;
     p.vy -= 9*dt;
     p.mesh.position.x += p.vx*dt;
@@ -1795,9 +1777,10 @@ if (testParams.has('e2e')){
     scoreSavingBlocked = true;
     player.x = 0; player.z = 0; player.yaw = 0; player.turnVel = 0; player.throttleVel = 0;
     obstacles.forEach(function(o){ scene.remove(o.mesh); });
-    obstacles = spec.obstacles.map(function(o){ return { mesh: new THREE.Group(), x: o.x, z: o.z, r: o.r }; });
+    obstacles.length = 0;
+    spec.obstacles.forEach(function(o){ obstacles.push({ mesh: new THREE.Group(), x: o.x, z: o.z, r: o.r }); });
     enemies.forEach(function(e){ scene.remove(e.mesh); });
-    enemies = [];
+    enemies.length = 0;
     var ids = spec.enemies.map(function(t){
       spawnEnemy();
       var e = enemies[enemies.length - 1];
