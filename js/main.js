@@ -1,65 +1,6 @@
 // Wirefront game script (WF-34: moved out of index.html as an ES module; split further step by step).
 // three.js and Firebase are CDN globals loaded by index.html before this module runs.
-
-/* ════════════════════════ constants ════════════════════════ */
-var FIREBASE_CONFIG = {
-  projectId: "wirefront-49636",
-  appId: "1:690237862698:web:67862d813cd89f90b06453",
-  storageBucket: "wirefront-49636.firebasestorage.app",
-  apiKey: "AIzaSyC0KsurLqS3evck7TspwGh96fvOTGtCCDc",
-  authDomain: "wirefront-49636.firebaseapp.com",
-  messagingSenderId: "690237862698",
-  databaseURL: "https://wirefront-49636-default-rtdb.firebaseio.com"
-};
-var VOID = 0x030d07;
-var PHOS = 0x3dff7a;
-var PHOS_DIM = 0x145c30;
-var PHOS_DEEP = 0x0a3319;
-var AMBER = 0xffb020;
-var WHITE_HOT = 0xeafff1;
-var CYAN = 0x3ce0ff;
-var CYAN_DIM = 0x0d4a5c;
-var AMBER_DIM = 0x5c3c10;
-// Standard enemy tanks: green tanks disappeared against the green grid (WF-21).
-var MAGENTA = 0xff3ddc;
-var EMBER = 0xff5a2a;
-var EMBER_DIM = 0x4a1408;
-var ICE_BLUE = 0xcfeeff;
-var ALLY_VARIANT = { name:'ally', color: ICE_BLUE, scale: 1.0 };
-var PRESENCE_HZ_MS = 110;
-var PRESENCE_TIMEOUT_MS = 15000;
-var STALE_SWEEP_MS = 3000;
-var ANNOUNCE_BATCH_MS = 900;
-var ANNOUNCE_MIN_AUDIO_GAP_MS = 4000;
-var MAX_COMMS_LINES = 3;
-// database.rules.json accepts only names built from these two lists; change both together.
-var CALLSIGN_ADJ = ['SILENT','IRON','GHOST','CRIMSON','ARCTIC','LONE','SWIFT','NIGHT','STEEL','VOID','RAPID','GRIM','SOLAR','ROGUE','QUIET'];
-var CALLSIGN_NOUN = ['FALCON','WOLF','VIPER','HORNET','RAVEN','COBRA','SPECTRE','TALON','REAPER','FOX','LYNX','HAWK','JACKAL','CONDOR','MANTIS'];
-
-var TANK_VARIANTS = [
-  { name:'scout',    color: CYAN, scale: 0.82, speedMul: 1.45, hp: 1, fireMul: 1.2 },
-  { name:'standard', color: MAGENTA, scale: 1.0,  speedMul: 1.0,  hp: 1, fireMul: 1.0 },
-  { name:'heavy',    color: AMBER,scale: 1.3,  speedMul: 0.68, hp: 2, fireMul: 0.8 }
-];
-function dimColor(hex, factor){
-  var c = new THREE.Color(hex);
-  c.multiplyScalar(factor);
-  return c.getHex();
-}
-
-var WORLD_R = 170;
-var SPAWN_CLEAR = 26;
-var PLAYER_SPEED_FWD = 15;
-var PLAYER_SPEED_REV = 9;
-var PLAYER_TURN_RATE = 1.7;
-var PLAYER_SHOT_SPEED = 62;
-var ENEMY_SHOT_SPEED = 17;
-var FIRE_COOLDOWN = 0.26;
-var HIT_RADIUS_ENEMY = 2.4;
-var HIT_RADIUS_OBSTACLE = 1.0;
-var PLAYER_BODY_R = 1.1;
-var ALLY_BODY_R = 1.35;
-var reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+import { ALLY_BODY_R, ALLY_VARIANT, AMBER, ANNOUNCE_BATCH_MS, ANNOUNCE_MIN_AUDIO_GAP_MS, CALLSIGN_ADJ, CALLSIGN_NOUN, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, ICE_BLUE, MAX_COMMS_LINES, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, PRESENCE_HZ_MS, PRESENCE_TIMEOUT_MS, SPAWN_CLEAR, STALE_SWEEP_MS, TANK_VARIANTS, VOID, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
 
 /* ════════════════════════ state ════════════════════════ */
 var G = {
