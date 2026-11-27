@@ -9,11 +9,8 @@ import { gemini, resetGeminiForNewGame, tacticMoveTarget, updateGeminiTactics, u
 
 var enemiesRemainingInWave = 0;
 var enemyIdCounter = 0;
-var scoreSavingBlocked = false;
 var fireHeld = false;
 
-var topScores = [];
-var db = null, userCap = null;
 
 var rtdb = null, presenceRef = null;
 var serverTimeOffsetMs = 0;
@@ -723,14 +720,12 @@ function startGame(){
   titleOverlay.hidden = true;
   gameOverOverlay.hidden = true;
   updateHUD();
-  saveHot();
 }
 
 function nextWave(){
   G.wave += 1;
   G.score += 500;
   spawnWave(G.wave);
-  saveHot();
 }
 
 function playerHit(){
@@ -743,7 +738,6 @@ function playerHit(){
   damageFlash.classList.add('hit');
   setTimeout(function(){ damageFlash.classList.remove('hit'); }, 130);
   updateHUD();
-  saveHot();
   if (G.lives <= 0){
     gameOver();
   } else {
@@ -760,11 +754,13 @@ function gameOver(){
   showInitialsError(false);
   gameOverOverlay.hidden = false;
   renderBoard(document.getElementById('goBoard'));
-  saveHot(true);
   var inp = document.getElementById('initials');
   inp.value = 'ACE';
   setTimeout(function(){ inp.focus(); inp.select(); }, 60);
 }
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('retryBtn').addEventListener('click', startGame);
 
 /* ════════════════════════ update loops ════════════════════════ */
 function updatePlayer(dt){
@@ -907,7 +903,6 @@ function updateShots(dt){
         if (enemiesRemainingInWave <= 0){
           setTimeout(nextWave, 900);
         }
-        saveHot();
       }
     });
 
@@ -953,6 +948,23 @@ function updateParticles(dt){
 }
 
 /* ════════════════════════ leaderboard (db) ════════════════════════ */
+var db = null;
+var topScores = [];
+// Set by the ?e2e hooks that change the game: a tab that used one never saves a score.
+var scoreSavingBlocked = false;
+function blockScoreSaving(){ scoreSavingBlocked = true; }
+var lbInitialsStep = document.getElementById('initialsStep');
+var lbGameOverOverlay = document.getElementById('gameOverOverlay');
+// After firebase.initializeApp: read the shared top ten, or show the board as offline.
+function connectLeaderboard(){
+  try{
+    db = firebase.firestore();
+    subscribeLeaderboard();
+  }catch(e){
+    db = null;
+    renderBoard(document.getElementById('titleBoard'));
+  }
+}
 function renderBoard(el){
   if (!db){
     el.innerHTML = '<div class="empty-board">Offline — scores not saved this session</div>';
@@ -986,7 +998,7 @@ function submitScore(){
   if (db && !scoreSavingBlocked){
     db.collection('scores').add({ initials: initials, score: G.score, wave: G.wave, ts: Date.now() }).catch(function(){});
   }
-  initialsStep.style.display = 'none';
+  lbInitialsStep.style.display = 'none';
 }
 document.getElementById('submitScoreBtn').addEventListener('click', submitScore);
 document.getElementById('initials').addEventListener('keydown', function(ev){
@@ -997,19 +1009,16 @@ document.getElementById('initials').addEventListener('input', function(ev){
   showInitialsError(false);
 });
 
-document.getElementById('startBtn').addEventListener('click', startGame);
-document.getElementById('retryBtn').addEventListener('click', startGame);
 
 function subscribeLeaderboard(){
   if (!db) return;
   db.collection('scores').orderBy('score','desc').limit(10).onSnapshot(function(snap){
     topScores = snap.docs.map(function(d){ return d.data(); });
     renderBoard(document.getElementById('titleBoard'));
-    if (!gameOverOverlay.hidden) renderBoard(document.getElementById('goBoard'));
+    if (!lbGameOverOverlay.hidden) renderBoard(document.getElementById('goBoard'));
   }, function(){ /* leave topScores as-is */ });
 }
 
-function saveHot(){ /* no-op: this build persists only via the shared scores collection */ }
 
 /* ════════════════════════ co-op presence (rtdb) ════════════════════════ */
 var PLAYERS_PATH = 'rooms/global/players';
@@ -1171,12 +1180,8 @@ function boot(){
 
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
-    db = firebase.firestore();
-    subscribeLeaderboard();
-  }catch(e){
-    db = null;
-    renderBoard(document.getElementById('titleBoard'));
-  }
+  }catch(e){ /* the leaderboard and presence fall back to offline */ }
+  connectLeaderboard();
 
   try{
     rtdb = firebase.database();
@@ -1228,12 +1233,12 @@ if (testParams.has('e2e')){
   };
   // The e2e hooks that change state. Anyone can add ?e2e, so a tab that used one never saves a score to the leaderboard.
   // Starts the next wave the way clearing a wave does (WF-25 tests).
-  window.__wirefrontNextWave = function(){ scoreSavingBlocked = true; nextWave(); };
+  window.__wirefrontNextWave = function(){ blockScoreSaving(); nextWave(); };
   // Puts the player at (0, 0) facing -z and replaces the obstacles and tanks with the given ones (WF-27 tests).
   // spec: { obstacles: [{x, z, r}], enemies: [{x, z, yaw?, speed?, tactic?, lastSeen?: {x, z}}], teamLastSeen?: {x, z, yaw} }.
   // Returns the tank ids.
   window.__wirefrontArrange = function(spec){
-    scoreSavingBlocked = true;
+    blockScoreSaving();
     player.x = 0; player.z = 0; player.yaw = 0; player.turnVel = 0; player.throttleVel = 0;
     obstacles.forEach(function(o){ scene.remove(o.mesh); });
     obstacles.length = 0;
