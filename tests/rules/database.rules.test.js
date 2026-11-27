@@ -10,7 +10,7 @@ const { ref, set, update, get, remove, serverTimestamp } = require('firebase/dat
 const PLAYERS = 'rooms/global/players';
 // Entry keys are the anonymous uid; each tab signs in with its own.
 const ALICE = 'alice';
-// Must match PRESENCE_TIMEOUT_MS in index.html.
+// Must match PRESENCE_TIMEOUT_MS in js/config.js.
 const STALE_MS = 15000;
 
 let testEnv;
@@ -122,13 +122,13 @@ test('any other two words are refused, even in the old name format', async () =>
   }
 });
 
-// Reads the lists out of index.html on purpose: this guards against the game and the rule drifting apart.
+// Reads the lists out of js/config.js on purpose: this guards against the game and the rule drifting apart.
 test('every callsign the game can generate is accepted', async () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'config.js'), 'utf8');
   const list = (varName) => {
-    const found = html.match(new RegExp(`var ${varName} = (\\[[^\\]]*\\]);`));
-    assert.ok(found, `${varName} not found in index.html; update this parser and the name rule`);
-    return JSON.parse(found[1].replace(/'/g, '"'));
+    const found = source.match(new RegExp(`const ${varName} = (\\[[^\\]]*\\]);`));
+    assert.ok(found, `${varName} not found in js/config.js; update this parser and the name rule`);
+    return [...found[1].matchAll(/'([^']*)'/g)].map((m) => m[1]);
   };
   const adjectives = list('CALLSIGN_ADJ');
   const nouns = list('CALLSIGN_NOUN');
