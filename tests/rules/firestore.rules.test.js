@@ -40,13 +40,13 @@ test('the existing format checks still apply', async () => {
 
 // Reads both lists on purpose: the game and the rule must block exactly the same words.
 test('the game and the rule block the same list', () => {
-  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const game = fs.readFileSync(path.join(ROOT, 'js', 'net', 'leaderboard.js'), 'utf8');
   const rules = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
-  const gameList = html.match(/var BLOCKED_INITIALS = (\[[^\]]*\]);/);
+  const gameList = game.match(/const BLOCKED_INITIALS = (\[[^\]]*\]);/);
   const ruleList = rules.match(/initials in (\[[^\]]*\])/);
-  assert.ok(gameList, 'BLOCKED_INITIALS not found in index.html');
+  assert.ok(gameList, 'BLOCKED_INITIALS not found in js/net/leaderboard.js');
   assert.ok(ruleList, 'blocked list not found in firestore.rules');
-  const parse = (list) => JSON.parse(list.replace(/'/g, '"'));
+  const parse = (list) => [...list.matchAll(/'([^']*)'/g)].map((m) => m[1]);
   assert.deepEqual(parse(ruleList[1]), parse(gameList[1]));
 });
 
