@@ -3,7 +3,9 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:rules": "firebase emulators:exec --only database,firestore --project demo-wirefront 'node --test tests/rules/*.test.js'"
+    "test:rules": "firebase emulators:exec --only database,firestore --project demo-wirefront 'node --test tests/rules/*.test.js'",
+    "lint": "eslint js && prettier --check js css",
+    "format": "prettier --write js css"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
