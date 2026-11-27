@@ -1,9 +1,8 @@
 // Sound: engine hum, effects, comms chime and speech, the comms mute, and the title music (WF-34).
 import { ANNOUNCE_MIN_AUDIO_GAP_MS } from './config.js';
 import { G } from './state.js';
-/* ════════════════════════ audio ════════════════════════ */
-export let speechReady = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
-export let actx = null,
+let speechReady = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+let actx = null,
   engineOsc = null,
   engineGain = null,
   engineFilter = null;
@@ -45,7 +44,7 @@ export function playFire() {
   o.stop(t + 0.15);
 }
 
-export function noiseBurst(dur, startFreq, gainPeak) {
+function noiseBurst(dur, startFreq, gainPeak) {
   if (!actx) return;
   var t = actx.currentTime;
   var bufSize = actx.sampleRate * dur;
@@ -128,8 +127,8 @@ export function playCommsLeave() {
   o.start(t);
   o.stop(t + 0.28);
 }
-export let announceVoice = null;
-export const FEMALE_VOICE_HINTS = [
+let announceVoice = null;
+const FEMALE_VOICE_HINTS = [
   'female',
   'samantha',
   'victoria',
@@ -151,7 +150,7 @@ export const FEMALE_VOICE_HINTS = [
   'zira',
   'google us english',
 ];
-export function pickAnnounceVoice() {
+function pickAnnounceVoice() {
   if (!speechReady) return;
   var voices = window.speechSynthesis.getVoices();
   if (!voices.length) return;
@@ -168,7 +167,7 @@ if (speechReady) {
   window.speechSynthesis.onvoiceschanged = pickAnnounceVoice;
 }
 
-export function speakAnnouncement(text) {
+function speakAnnouncement(text) {
   if (!speechReady) return;
   try {
     window.speechSynthesis.cancel();
@@ -183,9 +182,9 @@ export function speakAnnouncement(text) {
   }
 }
 
-export const COMMS_MUTED_KEY = 'wirefront.commsMuted';
-export const commsToggle = document.getElementById('commsToggle');
-export let commsMuted = false;
+const COMMS_MUTED_KEY = 'wirefront.commsMuted';
+const commsToggle = document.getElementById('commsToggle');
+let commsMuted = false;
 try {
   commsMuted = localStorage.getItem(COMMS_MUTED_KEY) === '1';
 } catch {
@@ -193,7 +192,7 @@ try {
 }
 showCommsMuted();
 
-export function showCommsMuted() {
+function showCommsMuted() {
   commsToggle.setAttribute('aria-pressed', String(commsMuted));
 }
 export function toggleCommsMuted() {
@@ -331,12 +330,14 @@ export const titleMusic = (function () {
     resumeAudio();
     start();
   }
-  // click, not pointerdown: phones only count a click or touchend as the gesture that unlocks audio. Buttons on
-  // the title handle their click first, so Engage starts the game (and the loop never starts) and the mute
-  // button mutes first (and the loop stays silent): no blip.
-  window.addEventListener('keydown', firstInput);
-  window.addEventListener('click', firstInput);
   return {
+    // Registered by main.js after the game's own listeners, so Enter and M on the title act first: Enter starts
+    // the game (the loop never starts) and M mutes (the loop stays silent). click, not pointerdown: phones only
+    // count a click or touchend as the gesture that unlocks audio.
+    listenForFirstInput: function () {
+      window.addEventListener('keydown', firstInput);
+      window.addEventListener('click', firstInput);
+    },
     // Called on each bar's downbeat, e.g. to send a ripple through the title wordmark.
     onBar: function (fn) {
       onBeat = fn;
@@ -357,7 +358,7 @@ export const titleMusic = (function () {
 })();
 
 // Chime plus voice line, unless muted or another voice line played in the last 4 s.
-export let lastAnnounceAudioAt = -Infinity;
+let lastAnnounceAudioAt = -Infinity;
 export function playCommsAudio(chime, speech) {
   if (commsMuted) return;
   var now = performance.now();

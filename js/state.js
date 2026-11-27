@@ -1,6 +1,5 @@
 // Shared game state: the game, the player, the tanks, shots, particles and obstacles (WF-34).
 // Arrays are only changed in place (keepOnly, length = 0), because other modules hold the same array.
-/* ════════════════════════ state ════════════════════════ */
 export const G = {
   state: 'title',
   score: 0,

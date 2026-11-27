@@ -102,3 +102,18 @@ test('Engage as the very first click plays no note at all', async ({ page }) => 
   await page.waitForTimeout(800);
   expect(await music(page)).toEqual({ state: 'off', notes: 0 });
 });
+
+test('Enter as the very first key starts the game with no note played', async ({ page }) => {
+  await openTitle(page);
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await probe(page)).state).toBe('playing');
+  await page.waitForTimeout(600);
+  expect(await music(page)).toEqual({ state: 'off', notes: 0 });
+});
+
+test('M as the very first key mutes before any note is played', async ({ page }) => {
+  await openTitle(page);
+  await page.keyboard.press('m');
+  await page.waitForTimeout(600);
+  expect(await music(page)).toEqual({ state: 'muted', notes: 0 });
+});

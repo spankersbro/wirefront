@@ -1,4 +1,4 @@
-// Wirefront game script (WF-34: moved out of index.html as an ES module; split further step by step).
+// Wirefront game core: spawning, shots, game flow, update loops, main loop, boot and the ?e2e test hooks (WF-34).
 // three.js and Firebase are CDN globals loaded by index.html before this module runs.
 import {
   ALLY_VARIANT,
@@ -33,7 +33,16 @@ import {
 } from './state.js';
 import { ensureAudio, playExplosion, playFire, playHit, resumeAudio, titleMusic, updateEngineHum } from './audio.js';
 import { titleRippleFrames } from './title.js';
-import { gemini, resetGeminiForNewGame, tacticMoveTarget, updateGeminiTactics, useScriptedTactics } from './gemini.js';
+import {
+  advanceGeminiTime,
+  gemini,
+  noteTeamSight,
+  resetGeminiForNewGame,
+  setTeamSighting,
+  tacticMoveTarget,
+  updateGeminiTactics,
+  useScriptedTactics,
+} from './gemini.js';
 import { blockScoreSaving, connectLeaderboard, renderBoard, showInitialsError } from './net/leaderboard.js';
 import {
   addShake,
@@ -180,6 +189,7 @@ function spawnParticles(x, y, z, color, count) {
 
 /* ════════════════════════ game flow ════════════════════════ */
 onStartKey(startGame);
+titleMusic.listenForFirstInput();
 var titleOverlay = document.getElementById('titleOverlay');
 var gameOverOverlay = document.getElementById('gameOverOverlay');
 var initialsStep = document.getElementById('initialsStep');
@@ -314,7 +324,7 @@ function updateCamera(dt, time) {
 function updateEnemies(dt) {
   var anyTankSees = false;
   // Game time, not wall-clock time: a hidden tab freezes the game, so the sighting must not age then.
-  gemini.gameTime += dt;
+  advanceGeminiTime(dt);
   enemies.forEach(function (e) {
     if (!e.alive) return;
     // Same rule as the player's radar: a tank only knows where the player is while it can see the player.
@@ -370,12 +380,7 @@ function updateEnemies(dt) {
     if (e.geminiMarker) e.geminiMarker.rotation.y += dt * 2.5;
   });
   // What the enemy side knows, for Gemini (WF-33): one sighting shared by all tanks, as if by radio.
-  gemini.seenNow = anyTankSees;
-  if (anyTankSees) setTeamSighting(player.x, player.z, player.yaw);
-}
-
-function setTeamSighting(x, z, yaw) {
-  gemini.sighting = { x: x, z: z, yaw: yaw, at: gemini.gameTime };
+  noteTeamSight(anyTankSees);
 }
 
 function updateShots(dt) {

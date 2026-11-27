@@ -16,9 +16,9 @@ import { playTankCollision } from './audio.js';
 import { scene, wireGroup, addShake } from './scene.js';
 import { allies, alliesColliding } from './net/presence.js';
 /* ════════════════════════ world ════════════════════════ */
-export const hemiLight = new THREE.HemisphereLight(0x0e3a20, 0x02100a, 0.65);
+const hemiLight = new THREE.HemisphereLight(0x0e3a20, 0x02100a, 0.65);
 scene.add(hemiLight);
-export const sunLight = new THREE.DirectionalLight(0xcfffe0, 0.85);
+const sunLight = new THREE.DirectionalLight(0xcfffe0, 0.85);
 sunLight.position.set(70, 110, 50);
 scene.add(sunLight);
 
@@ -56,9 +56,9 @@ scene.add(sunLight);
 })();
 
 // A ring of light that sweeps out across the grid from the player every few seconds.
-export const GRID_PULSE_PERIOD_S = 4.5;
-export const GRID_PULSE_REACH = 120;
-export const gridPulse = (function () {
+const GRID_PULSE_PERIOD_S = 4.5;
+const GRID_PULSE_REACH = 120;
+const gridPulse = (function () {
   var pts = [];
   for (var i = 0; i <= 96; i++) {
     var a = (i / 96) * Math.PI * 2;
@@ -143,7 +143,7 @@ export function scatterObstacles() {
 // A search spot is 15-30 units from where the tank last saw the player, inside the arena and clear of obstacles
 // (a pushed-out tank stays 1.6 units off an obstacle, plus 4 to count as arrived). Given up after SEARCH_SPOT_S
 // seconds, so a spot the tank cannot reach (a fast tank circling it) does not hold it for good.
-export const SEARCH_RADIUS = 30,
+const SEARCH_RADIUS = 30,
   SEARCH_SPOT_S = 8,
   SEARCH_TRIES = 20;
 export function pickSearchSpot(e) {
@@ -206,7 +206,7 @@ export function pushOutOfObstacles(pos, bodyR) {
   }
 }
 
-export const ALLY_PUSH_SPEED = 16; // units/sec — caps how fast overlap resolves so the
+const ALLY_PUSH_SPEED = 16; // units/sec — caps how fast overlap resolves so the
 // camera eases out instead of snapping in one frame
 
 // keeps the local tank from driving through another player's tank; only

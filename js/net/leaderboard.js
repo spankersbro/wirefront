@@ -1,16 +1,15 @@
 // The shared top-ten leaderboard in Firestore, and saving a score (WF-34).
 import { G } from '../state.js';
 import { playBlip } from '../audio.js';
-/* ════════════════════════ leaderboard (db) ════════════════════════ */
-export let db = null;
-export let topScores = [];
+let db = null;
+let topScores = [];
 // Set by the ?e2e hooks that change the game: a tab that used one never saves a score.
-export let scoreSavingBlocked = false;
+let scoreSavingBlocked = false;
 export function blockScoreSaving() {
   scoreSavingBlocked = true;
 }
-export const lbInitialsStep = document.getElementById('initialsStep');
-export const lbGameOverOverlay = document.getElementById('gameOverOverlay');
+const lbInitialsStep = document.getElementById('initialsStep');
+const lbGameOverOverlay = document.getElementById('gameOverOverlay');
 // After firebase.initializeApp: read the shared top ten, or show the board as offline.
 export function connectLeaderboard() {
   try {
@@ -45,14 +44,14 @@ export function renderBoard(el) {
     .join('');
   el.innerHTML = '<table class="scores">' + rows + '</table>';
 }
-export function escapeHtml(s) {
+function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
 
 // firestore.rules refuses the same list; change both together.
-export const BLOCKED_INITIALS = [
+const BLOCKED_INITIALS = [
   'ASS',
   'CNT',
   'CUM',
@@ -76,14 +75,14 @@ export const BLOCKED_INITIALS = [
   'SS',
   'TIT',
 ];
-export const initialsError = document.getElementById('initialsError');
+const initialsError = document.getElementById('initialsError');
 
 export function showInitialsError(show) {
   initialsError.hidden = !show;
   document.getElementById('initials').setAttribute('aria-invalid', String(show));
 }
 
-export function submitScore() {
+function submitScore() {
   var raw = document.getElementById('initials').value || 'ACE';
   var initials =
     raw
@@ -117,7 +116,7 @@ document.getElementById('initials').addEventListener('input', function (ev) {
   showInitialsError(false);
 });
 
-export function subscribeLeaderboard() {
+function subscribeLeaderboard() {
   if (!db) return;
   db.collection('scores')
     .orderBy('score', 'desc')

@@ -1,11 +1,10 @@
 // The title screen's WIREFRONT wordmark, drawn with the ripple shader (WF-29, moved in WF-34).
 import { reduceMotion } from './config.js';
 import { titleMusic } from './audio.js';
-/* ════════ title screen: ripple wordmark and synth loop (WF-29) ════════ */
 // The ripple shader from the Ripple Type side project, in the game's phosphor green instead of black and white:
 // hatched lines inside the letters, and a dot field whose density rises and falls with the same wave.
 export let titleRippleFrames = 0;
-export const titleRipple = (function () {
+const titleRipple = (function () {
   var canvas = document.getElementById('titleRipple');
   var gl = canvas.getContext('webgl');
   if (!gl) return { fire: function () {} };

@@ -1,6 +1,5 @@
 // The three.js scene, camera, renderer and the bloom glow (WF-20), moved in WF-34.
 import { VOID, dimColor, reduceMotion } from './config.js';
-/* ════════════════════════ three.js setup ════════════════════════ */
 export const canvas = document.getElementById('scene');
 export const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -15,8 +14,8 @@ export let composer = null,
   bloomPass = null,
   composerUsesDevicePixels = false;
 // Automated browsers (the test suite) render in software, where bloom is very slow; ?bloom opts in.
-export const bloomWanted = !navigator.webdriver || new URLSearchParams(location.search).has('bloom');
-export const bloomScriptsLoaded = [
+const bloomWanted = !navigator.webdriver || new URLSearchParams(location.search).has('bloom');
+const bloomScriptsLoaded = [
   'CopyShader',
   'LuminosityHighPassShader',
   'EffectComposer',
@@ -36,7 +35,7 @@ if (bloomWanted && bloomScriptsLoaded) {
 }
 if (!composer) document.body.classList.add('no-bloom');
 
-export function makeBloomComposer() {
+function makeBloomComposer() {
   // The composer renders into its own target, which has no antialiasing; on WebGL2 give it a multisampled one.
   var target;
   if (renderer.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget) {
@@ -56,7 +55,7 @@ export function makeBloomComposer() {
   return c;
 }
 
-export function dropBloom() {
+function dropBloom() {
   bloomPass.dispose();
   composer.renderTarget1.dispose();
   composer.renderTarget2.dispose();
@@ -65,9 +64,9 @@ export function dropBloom() {
 }
 
 // Bloom costs GPU time. If the first stretch of play runs slower than about 45fps, turn it off.
-export const BLOOM_CHECK_FRAMES = 120;
-export const BLOOM_MIN_FPS = 45;
-export const bloomCheck = { frames: 0, seconds: 0 };
+const BLOOM_CHECK_FRAMES = 120;
+const BLOOM_MIN_FPS = 45;
+const bloomCheck = { frames: 0, seconds: 0 };
 export function checkBloomFrameRate(dt) {
   if (!composer || bloomCheck.frames >= BLOOM_CHECK_FRAMES) return;
   bloomCheck.frames += 1;

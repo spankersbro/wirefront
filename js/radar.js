@@ -2,16 +2,15 @@
 import { PHOS, WORLD_R, reduceMotion } from './config.js';
 import { G, player, enemies, obstacles } from './state.js';
 import { hasLineOfSight } from './world.js';
-/* ════════════════════════ HUD / radar ════════════════════════ */
-export const scoreVal = document.getElementById('scoreVal');
-export const waveVal = document.getElementById('waveVal');
-export const livesRow = document.getElementById('livesRow');
+const scoreVal = document.getElementById('scoreVal');
+const waveVal = document.getElementById('waveVal');
+const livesRow = document.getElementById('livesRow');
 export const hintBar = document.getElementById('hintBar');
-export const toastEl = document.getElementById('toast');
+const toastEl = document.getElementById('toast');
 export const damageFlash = document.getElementById('damageFlash');
-export const radarCv = document.getElementById('radar');
-export const radarCx = radarCv.getContext('2d');
-export const radarDpr = Math.min(window.devicePixelRatio || 1, 2);
+const radarCv = document.getElementById('radar');
+const radarCx = radarCv.getContext('2d');
+const radarDpr = Math.min(window.devicePixelRatio || 1, 2);
 radarCv.width = 132 * radarDpr;
 radarCv.height = 132 * radarDpr;
 radarCx.scale(radarDpr, radarDpr);
@@ -27,7 +26,7 @@ export function updateHUD() {
   }
 }
 
-export let toastTimer = null;
+let toastTimer = null;
 export function showToast(text) {
   toastEl.textContent = text;
   toastEl.classList.add('show');
@@ -37,17 +36,17 @@ export function showToast(text) {
   }, 1500);
 }
 
-export let radarSweep = 0;
-export const RADAR_SWEEP_RAD_PER_S = reduceMotion ? 0.6 : 2.0;
+let radarSweep = 0;
+const RADAR_SWEEP_RAD_PER_S = reduceMotion ? 0.6 : 2.0;
 // A ping fades out over one turn of the sweep, just as the sweep comes round to refresh it.
-export const RADAR_PING_FADE_S = (Math.PI * 2) / RADAR_SWEEP_RAD_PER_S;
+const RADAR_PING_FADE_S = (Math.PI * 2) / RADAR_SWEEP_RAD_PER_S;
 // Radar time advances with the sweep (frame time, capped like the sweep), so a ping fades per sweep turn even when frames are slow.
-export let radarTime = 0;
+let radarTime = 0;
 // What the radar drew in its last frame, in canvas px; read by the e2e probe.
 export let radarDrawn = { blips: [], obstacles: [] };
 
 // Heading-up radar position of a world point, relative to the radar centre: ahead is up.
-export function radarPoint(x, z, R) {
+function radarPoint(x, z, R) {
   var dx = x - player.x,
     dz = z - player.z;
   var rel = Math.atan2(-dx, -dz) - player.yaw;

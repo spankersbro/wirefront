@@ -1,5 +1,4 @@
 // Fixed settings: Firebase config, colours, tank types, world and physics constants (WF-34).
-/* ════════════════════════ constants ════════════════════════ */
 export const FIREBASE_CONFIG = {
   projectId: 'wirefront-49636',
   appId: '1:690237862698:web:67862d813cd89f90b06453',
@@ -11,15 +10,12 @@ export const FIREBASE_CONFIG = {
 };
 export const VOID = 0x030d07;
 export const PHOS = 0x3dff7a;
-export const PHOS_DIM = 0x145c30;
 export const PHOS_DEEP = 0x0a3319;
 export const AMBER = 0xffb020;
 export const WHITE_HOT = 0xeafff1;
 export const CYAN = 0x3ce0ff;
-export const CYAN_DIM = 0x0d4a5c;
-export const AMBER_DIM = 0x5c3c10;
 // Standard enemy tanks: green tanks disappeared against the green grid (WF-21).
-export const MAGENTA = 0xff3ddc;
+const MAGENTA = 0xff3ddc;
 export const EMBER = 0xff5a2a;
 export const EMBER_DIM = 0x4a1408;
 export const ICE_BLUE = 0xcfeeff;
@@ -86,7 +82,6 @@ export const PLAYER_SHOT_SPEED = 62;
 export const ENEMY_SHOT_SPEED = 17;
 export const FIRE_COOLDOWN = 0.26;
 export const HIT_RADIUS_ENEMY = 2.4;
-export const HIT_RADIUS_OBSTACLE = 1.0;
 export const PLAYER_BODY_R = 1.1;
 export const ALLY_BODY_R = 1.35;
 export const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;

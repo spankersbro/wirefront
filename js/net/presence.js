@@ -13,27 +13,27 @@ import { showCommsLine } from '../comms.js';
 import { scene } from '../scene.js';
 import { makeAllyGroup } from '../tanks.js';
 /* ════════════════════════ co-op presence (rtdb) ════════════════════════ */
-export let rtdb = null,
+let rtdb = null,
   presenceRef = null;
-export let serverTimeOffsetMs = 0;
-export function serverNow() {
+let serverTimeOffsetMs = 0;
+function serverNow() {
   return Date.now() + serverTimeOffsetMs;
 }
 // The anonymous Firebase Auth uid. The RTDB rules only let a player write the entry under their own uid,
 // so each account can hold one tank.
-export let clientId = null;
-export const callsign =
+let clientId = null;
+const callsign =
   CALLSIGN_ADJ[Math.floor(Math.random() * CALLSIGN_ADJ.length)] +
   ' ' +
   CALLSIGN_NOUN[Math.floor(Math.random() * CALLSIGN_NOUN.length)];
 export const allies = {};
 export const alliesColliding = {};
-export let lastPresenceSend = 0;
-export let lastStaleSweep = 0;
-export let alliesReady = false;
-export let joinBuffer = [],
+let lastPresenceSend = 0;
+let lastStaleSweep = 0;
+let alliesReady = false;
+let joinBuffer = [],
   leaveBuffer = [];
-export let announceFlushTimer = null;
+let announceFlushTimer = null;
 
 // After firebase.initializeApp: sign in anonymously and join the shared room, or play on without co-op.
 export function connectPresence() {
@@ -54,7 +54,7 @@ export function connectPresence() {
   }
 }
 
-export function joinRoom(credential) {
+function joinRoom(credential) {
   clientId = credential.user.uid;
   presenceRef = rtdb.ref(PLAYERS_PATH + '/' + clientId);
   presenceRef.onDisconnect().remove();
@@ -74,9 +74,9 @@ export function tickPresence(dt) {
     sweepStaleAllies();
   }
 }
-export const PLAYERS_PATH = 'rooms/global/players';
+const PLAYERS_PATH = 'rooms/global/players';
 
-export function addAlly(id, data) {
+function addAlly(id, data) {
   var name = String(data.name || '???').slice(0, 24) || '???';
   var group = makeAllyGroup(name);
   scene.add(group);
@@ -93,7 +93,7 @@ export function addAlly(id, data) {
   };
 }
 
-export function updateAllyTarget(id, data) {
+function updateAllyTarget(id, data) {
   var a = allies[id];
   if (!a) {
     addAlly(id, data);
@@ -109,7 +109,7 @@ export function updateAllyTarget(id, data) {
 // without onDisconnect firing (crash, force-quit, killed network) and leave a
 // frozen tank behind. Sweep out any ally whose last update is stale and drop
 // its rtdb entry so every client converges on the same removal.
-export function sweepStaleAllies() {
+function sweepStaleAllies() {
   if (!rtdb) return;
   // Presence t is server time; the rules check staleness against server time too.
   var cutoff = serverNow() - PRESENCE_TIMEOUT_MS;
@@ -122,7 +122,7 @@ export function sweepStaleAllies() {
   }
 }
 
-export function removeAlly(id) {
+function removeAlly(id) {
   var a = allies[id];
   if (!a) return;
   scene.remove(a.group);
@@ -130,7 +130,7 @@ export function removeAlly(id) {
   delete alliesColliding[id];
 }
 
-export function subscribeAllies() {
+function subscribeAllies() {
   var ref = rtdb.ref(PLAYERS_PATH);
   // 'child_added' fires once per existing player the instant we subscribe,
   // then again for every future arrival — the one-time 'value' below tells
@@ -158,21 +158,21 @@ export function subscribeAllies() {
 /* ── join/leave announcements: batched so a burst of arrivals reads as
    one line and one sound/voice line, never one per player ── */
 
-export function queueJoin(name) {
+function queueJoin(name) {
   joinBuffer.push(name);
   scheduleAnnounceFlush();
 }
-export function queueLeave(name) {
+function queueLeave(name) {
   leaveBuffer.push(name);
   scheduleAnnounceFlush();
 }
 
-export function scheduleAnnounceFlush() {
+function scheduleAnnounceFlush() {
   if (announceFlushTimer) return;
   announceFlushTimer = setTimeout(flushAnnouncements, ANNOUNCE_BATCH_MS);
 }
 
-export function flushAnnouncements() {
+function flushAnnouncements() {
   announceFlushTimer = null;
   var joins = joinBuffer,
     leaves = leaveBuffer;
@@ -182,7 +182,7 @@ export function flushAnnouncements() {
   if (leaves.length) announceBatch(leaves, 'leave');
 }
 
-export function announceBatch(names, kind) {
+function announceBatch(names, kind) {
   var isJoin = kind === 'join';
   var lineText =
     names.length === 1
@@ -197,7 +197,7 @@ export function announceBatch(names, kind) {
   );
 }
 
-export function sendPresence(nowMs) {
+function sendPresence(nowMs) {
   if (!presenceRef) return;
   if (nowMs - lastPresenceSend < PRESENCE_HZ_MS) return;
   lastPresenceSend = nowMs;
@@ -210,7 +210,7 @@ export function sendPresence(nowMs) {
   });
 }
 
-export function updateAllies(dt) {
+function updateAllies(dt) {
   var lerpT = 1 - Math.pow(0.001, dt / 0.15);
   for (var id in allies) {
     var a = allies[id];

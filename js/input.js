@@ -2,9 +2,8 @@
 import { G, keys, touchDrive, fire } from './state.js';
 import { ensureAudio, resumeAudio, toggleCommsMuted } from './audio.js';
 import { canvas } from './scene.js';
-/* ════════════════════════ input ════════════════════════ */
-// Enter on the title or the final game-over screen starts a game; main.js registers how.
-export let startHandler = function () {};
+// Enter on the title starts a game; main.js registers how.
+let startHandler = function () {};
 export function onStartKey(fn) {
   startHandler = fn;
 }
@@ -16,7 +15,6 @@ window.addEventListener('keydown', function (ev) {
   if (ev.key.toLowerCase() === 'm' && !ev.repeat && !withModifier && ev.target.tagName !== 'INPUT') toggleCommsMuted();
   if (ev.key === 'Enter') {
     if (G.state === 'title') startHandler();
-    else if (G.state === 'gameover-final') startHandler();
   }
   ensureAudio();
   resumeAudio();
@@ -34,12 +32,12 @@ window.addEventListener('mouseup', function () {
   fire.held = false;
 });
 
-export const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 if (isTouch) document.body.classList.add('touch');
 
-export const joyZone = document.getElementById('joyZone');
-export const joyNub = document.getElementById('joyNub');
-export let joyId = null,
+const joyZone = document.getElementById('joyZone');
+const joyNub = document.getElementById('joyNub');
+let joyId = null,
   joyCenter = { x: 0, y: 0 };
 joyZone.addEventListener(
   'touchstart',
@@ -75,7 +73,7 @@ joyZone.addEventListener(
   },
   { passive: false },
 );
-export function endJoy(ev) {
+function endJoy(ev) {
   for (var i = 0; i < ev.changedTouches.length; i++) {
     if (ev.changedTouches[i].identifier === joyId) {
       joyId = null;
@@ -88,7 +86,7 @@ export function endJoy(ev) {
 joyZone.addEventListener('touchend', endJoy);
 joyZone.addEventListener('touchcancel', endJoy);
 
-export const fireBtn = document.getElementById('fireBtn');
+const fireBtn = document.getElementById('fireBtn');
 fireBtn.addEventListener(
   'touchstart',
   function (ev) {

@@ -1,17 +1,16 @@
 // Enemy tactics: Gemini through the proxy (WF-24/25/32/33), the scripted AI otherwise (moved in WF-34).
 import { WHITE_HOT } from './config.js';
-import { G, enemies, clock } from './state.js';
+import { G, player, enemies, clock } from './state.js';
 import { playCommsJoin, playCommsAudio } from './audio.js';
 import { showCommsLine } from './comms.js';
-/* ════════ enemy tactics: Gemini via the proxy (WF-24/25), scripted 'advance' otherwise ════════ */
-export const GEMINI_PROXY_URL = 'https://wirefront-gemini-proxy-690237862698.europe-west1.run.app/tactics';
-export const GEMINI_ASK_EVERY_S = 5;
-export const GEMINI_REQUEST_TIMEOUT_MS = 6000;
+const GEMINI_PROXY_URL = 'https://wirefront-gemini-proxy-690237862698.europe-west1.run.app/tactics';
+const GEMINI_ASK_EVERY_S = 5;
+const GEMINI_REQUEST_TIMEOUT_MS = 6000;
 // Tanks count as Gemini-driven only while Gemini's last orders are this fresh.
-export const GEMINI_ORDERS_FRESH_S = 12;
+const GEMINI_ORDERS_FRESH_S = 12;
 // A request still open after this long is given up (a sign-in token that never arrives has no timeout).
-export const GEMINI_GIVE_UP_AFTER_S = 10;
-export const TACTIC_WORDS = {
+const GEMINI_GIVE_UP_AFTER_S = 10;
+const TACTIC_WORDS = {
   flank_left: 'flank left',
   flank_right: 'flank right',
   hold_and_suppress: 'hold and suppress',
@@ -19,7 +18,7 @@ export const TACTIC_WORDS = {
   retreat: 'retreat',
 };
 // Tuned by eye in play, not measured. ADVANCE_STOP is the scripted AI's old stop distance.
-export const FLANK_RADIUS = 24,
+const FLANK_RADIUS = 24,
   FLANK_SWING = 0.9,
   HOLD_RANGE = 45,
   RETREAT_RANGE = 55,
@@ -45,7 +44,7 @@ export function resetGeminiForNewGame() {
   gemini.playerHits = 0;
   gemini.tanksLost = 0;
 }
-export const radarLabel = document.getElementById('radarLabel');
+const radarLabel = document.getElementById('radarLabel');
 
 // The point a tank drives towards for its tactic, or null to stay put. Relative to where it last saw the player.
 export function tacticMoveTarget(e, dist) {
@@ -60,7 +59,7 @@ export function tacticMoveTarget(e, dist) {
   return dist > ADVANCE_STOP ? { x: px, z: pz } : null;
 }
 
-export function setGeminiMarker(e, on) {
+function setGeminiMarker(e, on) {
   if (on && !e.geminiMarker) {
     var marker = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.OctahedronGeometry(0.32)),
@@ -83,7 +82,7 @@ export function useScriptedTactics() {
   gemini.lastOrdersAt = -Infinity;
 }
 
-export function currentUser() {
+function currentUser() {
   // firebase.auth() throws every frame if initializeApp failed; then there is simply no Gemini.
   try {
     return (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) || null;
@@ -92,7 +91,7 @@ export function currentUser() {
   }
 }
 
-export function setRadarLabel(text) {
+function setRadarLabel(text) {
   if (radarLabel.textContent !== text) radarLabel.textContent = text;
 }
 
@@ -116,7 +115,7 @@ export function updateGeminiTactics(nowS) {
   askGeminiForTactics(user, alive.slice(0, 10));
 }
 
-export function askGeminiForTactics(user, tanks) {
+function askGeminiForTactics(user, tanks) {
   var sighting = gemini.sighting;
   var summary = {
     wave: G.wave,
@@ -171,7 +170,7 @@ export function askGeminiForTactics(user, tanks) {
     });
 }
 
-export function applyGeminiAnswer(answer) {
+function applyGeminiAnswer(answer) {
   // Not while the tab is hidden: the order would be spoken, then dropped as stale on return.
   if (!answer || G.state !== 'playing' || document.visibilityState !== 'visible') return;
   if (answer.source !== 'gemini') {
@@ -201,7 +200,7 @@ export function applyGeminiAnswer(answer) {
 
 // Shows the most common new order, e.g. "GEMINI: 3 TANKS FLANK LEFT". The voice speaks once per wave only (WF-32):
 // a voice line on every order change was too much in play.
-export function announceGeminiOrders(changed) {
+function announceGeminiOrders(changed) {
   var tactic = null;
   Object.keys(changed).forEach(function (t) {
     if (!tactic || changed[t] > changed[tactic]) tactic = t;
@@ -217,4 +216,19 @@ export function announceGeminiOrders(changed) {
     return e.alive && e.tacticSource === 'gemini';
   }).length;
   playCommsAudio(playCommsJoin, 'Gemini controls ' + (controlled === 1 ? 'a tank' : controlled + ' tanks'));
+}
+
+// Game time, not wall-clock time: a hidden tab freezes the game, so the sighting must not age then (WF-33).
+export function advanceGeminiTime(dt) {
+  gemini.gameTime += dt;
+}
+
+// What the enemy side knows: one sighting shared by all tanks, as if by radio (WF-33).
+export function setTeamSighting(x, z, yaw) {
+  gemini.sighting = { x: x, z: z, yaw: yaw, at: gemini.gameTime };
+}
+
+export function noteTeamSight(anyTankSees) {
+  gemini.seenNow = anyTankSees;
+  if (anyTankSees) setTeamSighting(player.x, player.z, player.yaw);
 }

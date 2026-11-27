@@ -1,9 +1,8 @@
 // Tank meshes: the enemy variants and the ally tanks with their name tags (WF-21, moved in WF-34).
 import { ICE_BLUE, ALLY_VARIANT, dimColor } from './config.js';
 import { wireGroup } from './scene.js';
-/* ════════════════════════ enemy tanks ════════════════════════ */
 // Side profile (x forward, y up) extruded across the tank's width; the result points down -z like the camera.
-export function profileGeometry(points, width) {
+function profileGeometry(points, width) {
   var shape = new THREE.Shape();
   shape.moveTo(points[0][0], points[0][1]);
   for (var i = 1; i < points.length; i++) shape.lineTo(points[i][0], points[i][1]);
@@ -14,7 +13,7 @@ export function profileGeometry(points, width) {
   return geo;
 }
 
-export function lightStrip(points, color) {
+function lightStrip(points, color) {
   var geo = new THREE.BufferGeometry().setFromPoints(
     points.map(function (p) {
       return new THREE.Vector3(p[0], p[1], p[2]);
@@ -136,7 +135,7 @@ export function makeEnemyMesh(variant) {
   return g;
 }
 
-export function makeNameTag(text) {
+function makeNameTag(text) {
   var cv = document.createElement('canvas');
   cv.width = 256;
   cv.height = 64;
