@@ -19,7 +19,7 @@ export const bloomScriptsLoaded = ['CopyShader','LuminosityHighPassShader','Effe
 if (bloomWanted && bloomScriptsLoaded){
   try{
     composer = makeBloomComposer();
-  }catch(e){
+  }catch (e){
     console.warn('Wirefront: bloom setup failed, using the CSS glow.', e);
     composer = null;
   }

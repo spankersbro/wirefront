@@ -14,7 +14,7 @@ export function connectLeaderboard(){
   try{
     db = firebase.firestore();
     subscribeLeaderboard();
-  }catch(e){
+  }catch {
     db = null;
     renderBoard(document.getElementById('titleBoard'));
   }

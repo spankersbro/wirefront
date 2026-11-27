@@ -32,7 +32,7 @@ export function connectPresence(){
     }).then(joinRoom, function(error){
       console.warn('Wirefront: anonymous sign-in failed, playing without co-op presence.', error);
     });
-  }catch(e){
+  }catch {
     rtdb = null;
   }
 }

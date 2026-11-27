@@ -1,6 +1,6 @@
 // Enemy tactics: Gemini through the proxy (WF-24/25/32/33), the scripted AI otherwise (moved in WF-34).
 import { WHITE_HOT } from './config.js';
-import { G, player, enemies, clock } from './state.js';
+import { G, enemies, clock } from './state.js';
 import { playCommsJoin, playCommsAudio } from './audio.js';
 import { showCommsLine } from './comms.js';
 /* ════════ enemy tactics: Gemini via the proxy (WF-24/25), scripted 'advance' otherwise ════════ */
@@ -64,7 +64,7 @@ export function currentUser(){
   // firebase.auth() throws every frame if initializeApp failed; then there is simply no Gemini.
   try {
     return (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) || null;
-  } catch (error){
+  } catch {
     return null;
   }
 }

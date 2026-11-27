@@ -392,7 +392,7 @@ function boot(){
 
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
-  }catch(e){ /* the leaderboard and presence fall back to offline */ }
+  }catch { /* the leaderboard and presence fall back to offline */ }
   connectLeaderboard();
 
   connectPresence();

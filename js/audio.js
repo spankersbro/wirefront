@@ -19,7 +19,7 @@ export function ensureAudio(){
     engineGain.gain.value = 0;
     engineOsc.connect(engineFilter).connect(engineGain).connect(actx.destination);
     engineOsc.start();
-  }catch(e){ actx = null; }
+  }catch { actx = null; }
 }
 export function resumeAudio(){ if (actx && actx.state === 'suspended') actx.resume(); }
 
@@ -133,13 +133,13 @@ export function speakAnnouncement(text){
     u.pitch = 1.0;
     u.volume = 0.7;
     window.speechSynthesis.speak(u);
-  }catch(e){ speechReady = false; }
+  }catch { speechReady = false; }
 }
 
 export const COMMS_MUTED_KEY = 'wirefront.commsMuted';
 export const commsToggle = document.getElementById('commsToggle');
 export let commsMuted = false;
-try{ commsMuted = localStorage.getItem(COMMS_MUTED_KEY) === '1'; }catch(e){}
+try{ commsMuted = localStorage.getItem(COMMS_MUTED_KEY) === '1'; }catch { /* storage is optional: private mode or blocked */ }
 showCommsMuted();
 
 export function showCommsMuted(){
@@ -147,7 +147,7 @@ export function showCommsMuted(){
 }
 export function toggleCommsMuted(){
   commsMuted = !commsMuted;
-  try{ localStorage.setItem(COMMS_MUTED_KEY, commsMuted ? '1' : '0'); }catch(e){}
+  try{ localStorage.setItem(COMMS_MUTED_KEY, commsMuted ? '1' : '0'); }catch { /* storage is optional: private mode or blocked */ }
   if (commsMuted && speechReady) window.speechSynthesis.cancel();
   showCommsMuted();
   if (commsMuted) titleMusic.stop(); else titleMusic.start();
