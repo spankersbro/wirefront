@@ -1,5 +1,5 @@
 // The three.js scene, camera, renderer and the bloom glow (WF-20), moved in WF-34.
-import { VOID, dimColor } from './config.js';
+import { VOID, dimColor, reduceMotion } from './config.js';
 /* ════════════════════════ three.js setup ════════════════════════ */
 export const canvas = document.getElementById('scene');
 export const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true });
@@ -95,4 +95,19 @@ export function wireGroup(geometry, edgeColor, fillOcclusion, fillColor){
   lines.renderOrder = 1;
   g.add(lines);
   return g;
+}
+
+// Camera shake from hits and collisions; off with reduced motion.
+let shakeMag = 0;
+export function addShake(m){ if (!reduceMotion) shakeMag = Math.min(shakeMag + m, 1.4); }
+export function applyShake(dt){
+  if (shakeMag > 0.001){
+    camera.position.x += (Math.random()-0.5)*shakeMag;
+    camera.position.y += (Math.random()-0.5)*shakeMag*0.6;
+    camera.rotation.z = (Math.random()-0.5)*shakeMag*0.05;
+    shakeMag *= Math.pow(0.002, dt);
+  } else {
+    shakeMag = 0;
+    camera.rotation.z = 0;
+  }
 }

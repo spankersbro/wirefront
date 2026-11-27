@@ -1,18 +1,17 @@
 // Wirefront game script (WF-34: moved out of index.html as an ES module; split further step by step).
 // three.js and Firebase are CDN globals loaded by index.html before this module runs.
 import { ALLY_BODY_R, ALLY_VARIANT, AMBER, CYAN, EMBER, EMBER_DIM, ENEMY_SHOT_SPEED, FIREBASE_CONFIG, FIRE_COOLDOWN, HIT_RADIUS_ENEMY, PHOS, PHOS_DEEP, PLAYER_BODY_R, PLAYER_SHOT_SPEED, PLAYER_SPEED_FWD, PLAYER_SPEED_REV, PLAYER_TURN_RATE, SPAWN_CLEAR, TANK_VARIANTS, WHITE_HOT, WORLD_R, dimColor, reduceMotion } from './config.js';
-import { G, clock, eShots, enemies, keepOnly, keys, obstacles, pShots, particles, player, touchDrive } from './state.js';
+import { G, clock, eShots, enemies, fire, keepOnly, keys, obstacles, pShots, particles, player, touchDrive } from './state.js';
 import { ensureAudio, playExplosion, playFire, playHit, playTankCollision, resumeAudio, titleMusic, toggleCommsMuted, updateEngineHum } from './audio.js';
 import { titleRippleFrames } from './title.js';
 import { gemini, resetGeminiForNewGame, tacticMoveTarget, updateGeminiTactics, useScriptedTactics } from './gemini.js';
 import { blockScoreSaving, connectLeaderboard, renderBoard, showInitialsError } from './net/leaderboard.js';
-import { camBaseY, camera, canvas, checkBloomFrameRate, composer, forwardOf, renderer, resize, scene, wireGroup } from './scene.js';
+import { addShake, applyShake, camBaseY, camera, canvas, checkBloomFrameRate, composer, forwardOf, renderer, resize, scene, wireGroup } from './scene.js';
 import { makeEnemyMesh } from './tanks.js';
 import { allies, alliesColliding, connectPresence, tickPresence } from './net/presence.js';
 
 var enemiesRemainingInWave = 0;
 var enemyIdCounter = 0;
-var fireHeld = false;
 
 
 
@@ -310,9 +309,6 @@ function spawnParticles(x, y, z, color, count){
   }
 }
 
-/* ════════════════════════ camera shake ════════════════════════ */
-var shakeMag = 0;
-function addShake(m){ if (!reduceMotion) shakeMag = Math.min(shakeMag+m, 1.4); }
 
 /* ════════════════════════ HUD / radar ════════════════════════ */
 var scoreVal = document.getElementById('scoreVal');
@@ -430,24 +426,27 @@ function drawRadar(dt){
 }
 
 /* ════════════════════════ input ════════════════════════ */
+// Enter on the title or the final game-over screen starts a game; main.js registers how.
+var startHandler = function(){};
+function onStartKey(fn){ startHandler = fn; }
 window.addEventListener('keydown', function(ev){
   keys[ev.key.toLowerCase()] = true;
   if (['arrowup','arrowdown','arrowleft','arrowright',' '].indexOf(ev.key.toLowerCase()) > -1) ev.preventDefault();
-  if (ev.key === ' ') fireHeld = true;
+  if (ev.key === ' ') fire.held = true;
   var withModifier = ev.ctrlKey || ev.metaKey || ev.altKey;
   if (ev.key.toLowerCase() === 'm' && !ev.repeat && !withModifier && ev.target.tagName !== 'INPUT') toggleCommsMuted();
   if (ev.key === 'Enter'){
-    if (G.state === 'title') startGame();
-    else if (G.state === 'gameover-final') startGame();
+    if (G.state === 'title') startHandler();
+    else if (G.state === 'gameover-final') startHandler();
   }
   ensureAudio(); resumeAudio();
 });
 window.addEventListener('keyup', function(ev){
   keys[ev.key.toLowerCase()] = false;
-  if (ev.key === ' ') fireHeld = false;
+  if (ev.key === ' ') fire.held = false;
 });
-canvas.addEventListener('mousedown', function(){ ensureAudio(); resumeAudio(); fireHeld = true; });
-window.addEventListener('mouseup', function(){ fireHeld = false; });
+canvas.addEventListener('mousedown', function(){ ensureAudio(); resumeAudio(); fire.held = true; });
+window.addEventListener('mouseup', function(){ fire.held = false; });
 
 var isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 if (isTouch) document.body.classList.add('touch');
@@ -490,10 +489,11 @@ joyZone.addEventListener('touchend', endJoy);
 joyZone.addEventListener('touchcancel', endJoy);
 
 var fireBtn = document.getElementById('fireBtn');
-fireBtn.addEventListener('touchstart', function(ev){ ensureAudio(); resumeAudio(); fireHeld = true; ev.preventDefault(); }, {passive:false});
-fireBtn.addEventListener('touchend', function(ev){ fireHeld = false; ev.preventDefault(); }, {passive:false});
+fireBtn.addEventListener('touchstart', function(ev){ ensureAudio(); resumeAudio(); fire.held = true; ev.preventDefault(); }, {passive:false});
+fireBtn.addEventListener('touchend', function(ev){ fire.held = false; ev.preventDefault(); }, {passive:false});
 
 /* ════════════════════════ game flow ════════════════════════ */
+onStartKey(startGame);
 var titleOverlay = document.getElementById('titleOverlay');
 var gameOverOverlay = document.getElementById('gameOverOverlay');
 var initialsStep = document.getElementById('initialsStep');
@@ -586,7 +586,7 @@ function updatePlayer(dt){
 
   if (G.invuln > 0) G.invuln = Math.max(0, G.invuln - dt);
 
-  if (fireHeld) firePlayerShot();
+  if (fire.held) firePlayerShot();
 
   updateEngineHum(Math.abs(player.throttleVel));
 
@@ -602,15 +602,7 @@ function updateCamera(dt, time){
   camera.position.y = camBaseY + Math.sin(time*8)*0.02*Math.abs(player.throttleVel);
   camera.rotation.set(0, player.yaw, 0);
 
-  if (shakeMag > 0.001){
-    camera.position.x += (Math.random()-0.5)*shakeMag;
-    camera.position.y += (Math.random()-0.5)*shakeMag*0.6;
-    camera.rotation.z = (Math.random()-0.5)*shakeMag*0.05;
-    shakeMag *= Math.pow(0.002, dt);
-  } else {
-    shakeMag = 0;
-    camera.rotation.z = 0;
-  }
+  applyShake(dt);
 }
 
 function updateEnemies(dt){

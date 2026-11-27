@@ -12,6 +12,7 @@ export const G = {
 };
 export const keys = {};
 export const touchDrive = { active:false, throttle:0, turn:0 };
+export const fire = { held: false };
 
 export const player = { x:0, z:0, yaw:0, turnVel:0, throttleVel:0 };
 export const enemies = [];
