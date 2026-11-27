@@ -75,3 +75,30 @@ test('the music stops when play starts', async ({ page }) => {
   await page.waitForTimeout(1200);
   expect((await music(page)).notes).toBe(before);
 });
+
+test('with reduced motion the wordmark stands still', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openTitle(page);
+  const canvas = page.locator('#titleRipple');
+  await expect.poll(async () => (await probe(page)).titleRippleFrames).toBeGreaterThan(5);
+  const first = await canvas.screenshot();
+  await page.waitForTimeout(600);
+  const second = await canvas.screenshot();
+  expect(second.equals(first)).toBe(true);
+});
+
+test('without reduced motion the wordmark moves', async ({ page }) => {
+  await openTitle(page);
+  const canvas = page.locator('#titleRipple');
+  await expect.poll(async () => (await probe(page)).titleRippleFrames).toBeGreaterThan(5);
+  const first = await canvas.screenshot();
+  await page.waitForTimeout(600);
+  expect((await canvas.screenshot()).equals(first)).toBe(false);
+});
+
+test('Engage as the very first click plays no note at all', async ({ page }) => {
+  await openTitle(page);
+  await page.locator('#startBtn').click();
+  await page.waitForTimeout(800);
+  expect(await music(page)).toEqual({ state: 'off', notes: 0 });
+});
