@@ -873,6 +873,8 @@
     var count = Math.min(3+Math.floor((n-1)*1.3), 10);
     for (var i=0;i<count;i++) spawnEnemy();
     enemiesRemainingInWave = count;
+    // New tanks arrive knowing where the player is, like their own knownX/knownZ.
+    setTeamSighting(player.x, player.z, player.yaw);
     gemini.voicedThisWave = false;
     showToast('WAVE ' + n);
   }
@@ -1397,11 +1399,14 @@
   }
 
   function updateEnemies(dt){
+    var anyTankSees = false;
+    // Game time, not wall-clock time: a hidden tab freezes the game, so the sighting must not age then.
+    gemini.gameTime += dt;
     enemies.forEach(function(e){
       if (!e.alive) return;
       // Same rule as the player's radar: a tank only knows where the player is while it can see the player.
       var seesPlayer = hasLineOfSight(e.x, e.z, player.x, player.z);
-      if (seesPlayer){ e.knownX = player.x; e.knownZ = player.z; }
+      if (seesPlayer){ e.knownX = player.x; e.knownZ = player.z; anyTankSees = true; }
       var dx = e.knownX-e.x, dz = e.knownZ-e.z;
       var dist = Math.sqrt(dx*dx+dz*dz);
       // Without a move target the tank turns to face where it last saw the player; with one it turns towards the target.
@@ -1443,6 +1448,13 @@
       e.mesh.rotation.y = e.yaw;
       if (e.geminiMarker) e.geminiMarker.rotation.y += dt*2.5;
     });
+    // What the enemy side knows, for Gemini (WF-33): one sighting shared by all tanks, as if by radio.
+    gemini.seenNow = anyTankSees;
+    if (anyTankSees) setTeamSighting(player.x, player.z, player.yaw);
+  }
+
+  function setTeamSighting(x, z, yaw){
+    gemini.sighting = { x: x, z: z, yaw: yaw, at: gemini.gameTime };
   }
 
   /* ════════ enemy tactics: Gemini via the proxy (WF-24/25), scripted 'advance' otherwise ════════ */
@@ -1457,7 +1469,8 @@
   // Tuned by eye in play, not measured. ADVANCE_STOP is the scripted AI's old stop distance.
   var FLANK_RADIUS = 24, FLANK_SWING = 0.9, HOLD_RANGE = 45, RETREAT_RANGE = 55, ADVANCE_STOP = 16;
   // requestNumber: only the latest request may act; an older one finishing late (after a give-up or a new game) is ignored.
-  var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0, requestNumber:0, voicedThisWave:false };
+  var gemini = { inFlight:false, lastAskAt:-Infinity, lastOrdersAt:-Infinity, playerHits:0, tanksLost:0, requestNumber:0, voicedThisWave:false,
+                 seenNow:true, sighting:{ x:0, z:0, yaw:0, at:0 }, gameTime:0 };
   // lastAskAt survives a new game on purpose: the proxy answers 'too-soon' to calls under 4s apart.
   function resetGeminiForNewGame(){
     gemini.requestNumber += 1;
@@ -1533,12 +1546,15 @@
   }
 
   function askGeminiForTactics(user, tanks){
+    var sighting = gemini.sighting;
     var summary = {
       wave: G.wave,
       // player.yaw grows without bound while turning; the proxy rejects |yaw| > 100.
-      player: { yaw: Math.atan2(Math.sin(player.yaw), Math.cos(player.yaw)), lives: Math.max(G.lives, 0) },
+      // Only what the tanks know (WF-33): positions and heading from the last sighting, and how old it is.
+      player: { yaw: Math.atan2(Math.sin(sighting.yaw), Math.cos(sighting.yaw)), lives: Math.max(G.lives, 0),
+                seen: gemini.seenNow, lastSeenS: Math.min(Math.max(gemini.gameTime - sighting.at, 0), 3600) },
       tanks: tanks.map(function(e){
-        return { id: e.id, variant: e.variant.name, dx: e.x - player.x, dz: e.z - player.z, hp: Math.max(e.hp, 0) };
+        return { id: e.id, variant: e.variant.name, dx: e.x - sighting.x, dz: e.z - sighting.z, hp: Math.max(e.hp, 0) };
       }),
       sinceLastOrders: { kills: Math.min(gemini.playerHits, 99), losses: Math.min(gemini.tanksLost, 99) },
     };
@@ -1987,7 +2003,8 @@
     // Starts the next wave the way clearing a wave does (WF-25 tests).
     window.__wirefrontNextWave = function(){ scoreSavingBlocked = true; nextWave(); };
     // Puts the player at (0, 0) facing -z and replaces the obstacles and tanks with the given ones (WF-27 tests).
-    // spec: { obstacles: [{x, z, r}], enemies: [{x, z, yaw?, speed?, tactic?, lastSeen?: {x, z}}] }. Returns the tank ids.
+    // spec: { obstacles: [{x, z, r}], enemies: [{x, z, yaw?, speed?, tactic?, lastSeen?: {x, z}}], teamLastSeen?: {x, z, yaw} }.
+    // Returns the tank ids.
     window.__wirefrontArrange = function(spec){
       scoreSavingBlocked = true;
       player.x = 0; player.z = 0; player.yaw = 0; player.turnVel = 0; player.throttleVel = 0;
@@ -1995,7 +2012,7 @@
       obstacles = spec.obstacles.map(function(o){ return { mesh: new THREE.Group(), x: o.x, z: o.z, r: o.r }; });
       enemies.forEach(function(e){ scene.remove(e.mesh); });
       enemies = [];
-      return spec.enemies.map(function(t){
+      var ids = spec.enemies.map(function(t){
         spawnEnemy();
         var e = enemies[enemies.length - 1];
         e.x = t.x; e.z = t.z; e.yaw = t.yaw || 0;
@@ -2006,6 +2023,9 @@
         enemiesRemainingInWave = enemies.length;
         return e.id;
       });
+      var seen = spec.teamLastSeen || { x: player.x, z: player.z, yaw: player.yaw };
+      setTeamSighting(seen.x, seen.z, seen.yaw || 0);
+      return ids;
     };
   }
 

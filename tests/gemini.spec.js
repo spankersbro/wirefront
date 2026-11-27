@@ -480,3 +480,65 @@ test('after the e2e next-wave hook was used, the score is not saved to the leade
   await expect(page.locator('#initialsStep')).toBeHidden();
   expect(await page.evaluate(() => window.__fakeFirestore.adds)).toEqual([]);
 });
+
+// WF-33: Gemini only knows what the tanks know.
+test('when no tank sees the player, Gemini gets positions relative to the last sighting, and seen is false', async ({ page }) => {
+  const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
+  await engage(page);
+  await expect.poll(() => requests.length).toBe(1);
+  await answerHandled(page);
+  // One tank at (0, -60) that cannot move, an obstacle hiding the player, and the team last saw the player at (40, -20).
+  await page.evaluate(() => window.__wirefrontArrange({
+    obstacles: [{ x: 0, z: -30, r: 8 }],
+    enemies: [{ x: 0, z: -60, speed: 0 }],
+    teamLastSeen: { x: 40, z: -20, yaw: 1 },
+  }));
+  // Real frames, so game time passes: the sighting is about 5 s old at the next ask.
+  await page.clock.runFor(ASK_EVERY_MS + 100);
+  await expect.poll(() => requests.length).toBe(2);
+  const { player, tanks } = requests[1].body;
+  expect(player.seen).toBe(false);
+  expect(player.lastSeenS).toBeGreaterThanOrEqual(4.5);
+  expect(player.lastSeenS).toBeLessThanOrEqual(5.5);
+  expect(player.yaw).toBeCloseTo(1, 5);
+  // Relative to the sighting at (40, -20), not to the player at (0, 0).
+  expect(tanks[0].dx).toBeCloseTo(-40, 5);
+  expect(tanks[0].dz).toBeCloseTo(-40, 5);
+});
+
+test('when a tank sees the player, Gemini gets positions relative to the player, and seen is true', async ({ page }) => {
+  const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
+  await engage(page);
+  await expect.poll(() => requests.length).toBe(1);
+  await answerHandled(page);
+  await page.evaluate(() => window.__wirefrontArrange({
+    obstacles: [],
+    enemies: [{ x: 30, z: -60, speed: 0 }],
+    teamLastSeen: { x: 40, z: -20, yaw: 1 },
+  }));
+  await skip(page, ASK_EVERY_MS);
+  await expect.poll(() => requests.length).toBe(2);
+  const { player, tanks } = requests[1].body;
+  expect(player.seen).toBe(true);
+  expect(player.lastSeenS).toBeLessThan(0.2);
+  expect(tanks[0].dx).toBeCloseTo(30, 5);
+  expect(tanks[0].dz).toBeCloseTo(-60, 5);
+});
+
+test('a hidden tab does not age the last sighting: only game time counts', async ({ page }) => {
+  const requests = await openGame(page, () => ({ source: 'scripted', reason: 'daily-limit' }));
+  await engage(page);
+  await expect.poll(() => requests.length).toBe(1);
+  await answerHandled(page);
+  await page.evaluate(() => window.__wirefrontArrange({
+    obstacles: [{ x: 0, z: -30, r: 8 }],
+    enemies: [{ x: 0, z: -60, speed: 0 }],
+    teamLastSeen: { x: 40, z: -20, yaw: 1 },
+  }));
+  // One minute away from the tab: the clock jumps, the game does not run.
+  await page.clock.fastForward(60000);
+  await page.clock.runFor(100);
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests[1].body.player.seen).toBe(false);
+  expect(requests[1].body.player.lastSeenS).toBeLessThan(2);
+});
