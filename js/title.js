@@ -5,15 +5,20 @@ import { titleMusic } from './audio.js';
 // The ripple shader from the Ripple Type side project, in the game's phosphor green instead of black and white:
 // hatched lines inside the letters, and a dot field whose density rises and falls with the same wave.
 export let titleRippleFrames = 0;
-export const titleRipple = (function(){
+export const titleRipple = (function () {
   var canvas = document.getElementById('titleRipple');
   var gl = canvas.getContext('webgl');
-  if (!gl) return { fire: function(){} };
+  if (!gl) return { fire: function () {} };
   document.getElementById('titleOverlay').classList.add('title-gl');
-  var VERT = 'attribute vec2 aPosition; varying vec2 vUV; void main(){ vUV = aPosition * 0.5 + 0.5; gl_Position = vec4(aPosition, 0.0, 1.0); }';
+  var VERT =
+    'attribute vec2 aPosition; varying vec2 vUV; void main(){ vUV = aPosition * 0.5 + 0.5; gl_Position = vec4(aPosition, 0.0, 1.0); }';
   var FRAG = [
     // Phones with true 16-bit mediump break the hash and the time; use highp where the GPU has it.
-    '#ifdef GL_FRAGMENT_PRECISION_HIGH', 'precision highp float;', '#else', 'precision mediump float;', '#endif',
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+    'precision highp float;',
+    '#else',
+    'precision mediump float;',
+    '#endif',
     'varying vec2 vUV; uniform sampler2D uTexture; uniform vec2 uResolution; uniform float uTime;',
     'uniform vec2 uRippleOrigin[6]; uniform float uRippleStart[6];',
     'float hash21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }',
@@ -44,26 +49,33 @@ export const titleRipple = (function(){
     '  vec3 phosphor = vec3(0.24, 1.0, 0.48);',
     '  vec3 col = phosphor * lineVal * mask + phosphor * 0.55 * dotShape * (1.0 - mask);',
     '  gl_FragColor = vec4(col, 1.0);',
-    '}'
+    '}',
   ].join('\n');
-  function compile(type, src){ var sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh); return sh; }
+  function compile(type, src) {
+    var sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    return sh;
+  }
   var program = gl.createProgram();
   gl.attachShader(program, compile(gl.VERTEX_SHADER, VERT));
   gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAG));
   gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)){
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
     document.getElementById('titleOverlay').classList.remove('title-gl');
-    return { fire: function(){} };
+    return { fire: function () {} };
   }
   gl.useProgram(program);
   var buf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   var aPosition = gl.getAttribLocation(program, 'aPosition');
   gl.enableVertexAttribArray(aPosition);
   gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
-  var uTime = gl.getUniformLocation(program, 'uTime'), uRes = gl.getUniformLocation(program, 'uResolution');
-  var uOrigin = gl.getUniformLocation(program, 'uRippleOrigin[0]'), uStart = gl.getUniformLocation(program, 'uRippleStart[0]');
+  var uTime = gl.getUniformLocation(program, 'uTime'),
+    uRes = gl.getUniformLocation(program, 'uResolution');
+  var uOrigin = gl.getUniformLocation(program, 'uRippleOrigin[0]'),
+    uStart = gl.getUniformLocation(program, 'uRippleStart[0]');
   var texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -71,45 +83,72 @@ export const titleRipple = (function(){
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  var text = document.createElement('canvas'), tctx = text.getContext('2d');
-  function drawText(){
-    var w = text.width, h = text.height, size = h * 0.62;
-    tctx.clearRect(0, 0, w, h); tctx.textAlign = 'center'; tctx.textBaseline = 'middle'; tctx.fillStyle = '#fff';
-    do { tctx.font = '900 ' + size + 'px Orbitron, "Segoe UI", sans-serif'; size -= 2; } while (tctx.measureText('WIREFRONT').width > w * 0.94 && size > 10);
+  var text = document.createElement('canvas'),
+    tctx = text.getContext('2d');
+  function drawText() {
+    var w = text.width,
+      h = text.height,
+      size = h * 0.62;
+    tctx.clearRect(0, 0, w, h);
+    tctx.textAlign = 'center';
+    tctx.textBaseline = 'middle';
+    tctx.fillStyle = '#fff';
+    do {
+      tctx.font = '900 ' + size + 'px Orbitron, "Segoe UI", sans-serif';
+      size -= 2;
+    } while (tctx.measureText('WIREFRONT').width > w * 0.94 && size > 10);
     tctx.fillText('WIREFRONT', w / 2, h / 2);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, text);
   }
-  function size(){
+  function size() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = text.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
     canvas.height = text.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
     gl.viewport(0, 0, canvas.width, canvas.height);
     drawText();
   }
-  var origins = new Float32Array(12), starts = new Float32Array(6).fill(-9999), next = 0, t0 = performance.now();
+  var origins = new Float32Array(12),
+    starts = new Float32Array(6).fill(-9999),
+    next = 0,
+    t0 = performance.now();
   // Wraps after 100 periods of the ambient wave (2*pi/1.1 s each), so the wave never jumps and floats stay small.
-  var WRAP_S = 100 * 2 * Math.PI / 1.1;
+  var WRAP_S = (100 * 2 * Math.PI) / 1.1;
   // With reduced motion the wordmark stands still: no clock, no ripples.
-  function now(){ return reduceMotion ? 0 : ((performance.now() - t0) / 1000) % WRAP_S; }
-  function fire(x, y){ if (reduceMotion) return; origins[next*2] = x; origins[next*2+1] = y; starts[next] = now(); next = (next + 1) % 6; }
-  canvas.addEventListener('pointerdown', function(e){
-    var r = canvas.getBoundingClientRect(); fire((e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height);
+  function now() {
+    return reduceMotion ? 0 : ((performance.now() - t0) / 1000) % WRAP_S;
+  }
+  function fire(x, y) {
+    if (reduceMotion) return;
+    origins[next * 2] = x;
+    origins[next * 2 + 1] = y;
+    starts[next] = now();
+    next = (next + 1) % 6;
+  }
+  canvas.addEventListener('pointerdown', function (e) {
+    var r = canvas.getBoundingClientRect();
+    fire((e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height);
   });
   window.addEventListener('resize', size);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawText);
   size();
   var titleOverlayEl = document.getElementById('titleOverlay');
-  (function frame(){
+  (function frame() {
     requestAnimationFrame(frame);
     if (titleOverlayEl.hidden) return;
     if (canvas.width !== Math.round(canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 2))) size();
-    gl.uniform1f(uTime, now()); gl.uniform2f(uRes, canvas.width, canvas.height);
-    gl.uniform2fv(uOrigin, origins); gl.uniform1fv(uStart, starts);
+    gl.uniform1f(uTime, now());
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform2fv(uOrigin, origins);
+    gl.uniform1fv(uStart, starts);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     titleRippleFrames++;
   })();
   fire(0.5, 0.5);
-  return { fire: function(){ fire(0.5 + (Math.random() - 0.5) * 0.4, 0.5 + (Math.random() - 0.5) * 0.3); } };
+  return {
+    fire: function () {
+      fire(0.5 + (Math.random() - 0.5) * 0.4, 0.5 + (Math.random() - 0.5) * 0.3);
+    },
+  };
 })();
 titleMusic.onBar(titleRipple.fire);

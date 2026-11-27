@@ -8,20 +8,20 @@ export const G = {
   lives: 3,
   invuln: 0,
   lastFire: -10,
-  hintFaded: false
+  hintFaded: false,
 };
 export const keys = {};
-export const touchDrive = { active:false, throttle:0, turn:0 };
+export const touchDrive = { active: false, throttle: 0, turn: 0 };
 export const fire = { held: false };
 
-export const player = { x:0, z:0, yaw:0, turnVel:0, throttleVel:0 };
+export const player = { x: 0, z: 0, yaw: 0, turnVel: 0, throttleVel: 0 };
 export const enemies = [];
 export const pShots = [];
 export const eShots = [];
 export const particles = [];
 export const obstacles = [];
 // Keeps the items the callback returns true for, in place: other modules hold the same array.
-export function keepOnly(list, keep){
+export function keepOnly(list, keep) {
   var kept = list.filter(keep);
   list.length = 0;
   Array.prototype.push.apply(list, kept);

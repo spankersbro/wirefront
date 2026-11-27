@@ -2,7 +2,7 @@
 import { VOID, dimColor, reduceMotion } from './config.js';
 /* ════════════════════════ three.js setup ════════════════════════ */
 export const canvas = document.getElementById('scene');
-export const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true });
+export const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 export const scene = new THREE.Scene();
 scene.background = new THREE.Color(VOID);
@@ -11,27 +11,41 @@ scene.fog = new THREE.Fog(VOID, 90, 300);
 export const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 500);
 export const camBaseY = 1.55;
 
-export let composer = null, bloomPass = null, composerUsesDevicePixels = false;
+export let composer = null,
+  bloomPass = null,
+  composerUsesDevicePixels = false;
 // Automated browsers (the test suite) render in software, where bloom is very slow; ?bloom opts in.
 export const bloomWanted = !navigator.webdriver || new URLSearchParams(location.search).has('bloom');
-export const bloomScriptsLoaded = ['CopyShader','LuminosityHighPassShader','EffectComposer','RenderPass','ShaderPass','UnrealBloomPass']
-  .every(function(name){ return THREE[name] !== undefined; });
-if (bloomWanted && bloomScriptsLoaded){
-  try{
+export const bloomScriptsLoaded = [
+  'CopyShader',
+  'LuminosityHighPassShader',
+  'EffectComposer',
+  'RenderPass',
+  'ShaderPass',
+  'UnrealBloomPass',
+].every(function (name) {
+  return THREE[name] !== undefined;
+});
+if (bloomWanted && bloomScriptsLoaded) {
+  try {
     composer = makeBloomComposer();
-  }catch (e){
+  } catch (e) {
     console.warn('Wirefront: bloom setup failed, using the CSS glow.', e);
     composer = null;
   }
 }
 if (!composer) document.body.classList.add('no-bloom');
 
-export function makeBloomComposer(){
+export function makeBloomComposer() {
   // The composer renders into its own target, which has no antialiasing; on WebGL2 give it a multisampled one.
   var target;
-  if (renderer.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget){
+  if (renderer.capabilities.isWebGL2 && THREE.WebGLMultisampleRenderTarget) {
     var dpr = renderer.getPixelRatio();
-    target = new THREE.WebGLMultisampleRenderTarget(Math.floor(window.innerWidth*dpr), Math.floor(window.innerHeight*dpr), { format: THREE.RGBAFormat });
+    target = new THREE.WebGLMultisampleRenderTarget(
+      Math.floor(window.innerWidth * dpr),
+      Math.floor(window.innerHeight * dpr),
+      { format: THREE.RGBAFormat },
+    );
     composerUsesDevicePixels = true;
   }
   var c = new THREE.EffectComposer(renderer, target);
@@ -42,7 +56,7 @@ export function makeBloomComposer(){
   return c;
 }
 
-export function dropBloom(){
+export function dropBloom() {
   bloomPass.dispose();
   composer.renderTarget1.dispose();
   composer.renderTarget2.dispose();
@@ -54,36 +68,40 @@ export function dropBloom(){
 export const BLOOM_CHECK_FRAMES = 120;
 export const BLOOM_MIN_FPS = 45;
 export const bloomCheck = { frames: 0, seconds: 0 };
-export function checkBloomFrameRate(dt){
+export function checkBloomFrameRate(dt) {
   if (!composer || bloomCheck.frames >= BLOOM_CHECK_FRAMES) return;
   bloomCheck.frames += 1;
   bloomCheck.seconds += dt;
-  if (bloomCheck.frames === BLOOM_CHECK_FRAMES && bloomCheck.seconds / BLOOM_CHECK_FRAMES > 1 / BLOOM_MIN_FPS) dropBloom();
+  if (bloomCheck.frames === BLOOM_CHECK_FRAMES && bloomCheck.seconds / BLOOM_CHECK_FRAMES > 1 / BLOOM_MIN_FPS)
+    dropBloom();
 }
 
-export function resize(){
-  var w = window.innerWidth, h = window.innerHeight;
+export function resize() {
+  var w = window.innerWidth,
+    h = window.innerHeight;
   renderer.setSize(w, h);
-  if (composer){
+  if (composer) {
     var scale = composerUsesDevicePixels ? renderer.getPixelRatio() : 1;
-    composer.setSize(Math.floor(w*scale), Math.floor(h*scale));
+    composer.setSize(Math.floor(w * scale), Math.floor(h * scale));
   }
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
 
-export function forwardOf(yaw){
-  return new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0, yaw, 0));
+export function forwardOf(yaw) {
+  return new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, yaw, 0));
 }
 
-export function wireGroup(geometry, edgeColor, fillOcclusion, fillColor){
+export function wireGroup(geometry, edgeColor, fillOcclusion, fillColor) {
   var g = new THREE.Group();
-  if (fillOcclusion !== false){
+  if (fillOcclusion !== false) {
     var fillMat = new THREE.MeshLambertMaterial({
       color: fillColor !== undefined ? fillColor : dimColor(edgeColor, 0.4),
       flatShading: true,
-      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     });
     var fill = new THREE.Mesh(geometry, fillMat);
     fill.renderOrder = 0;
@@ -99,12 +117,14 @@ export function wireGroup(geometry, edgeColor, fillOcclusion, fillColor){
 
 // Camera shake from hits and collisions; off with reduced motion.
 let shakeMag = 0;
-export function addShake(m){ if (!reduceMotion) shakeMag = Math.min(shakeMag + m, 1.4); }
-export function applyShake(dt){
-  if (shakeMag > 0.001){
-    camera.position.x += (Math.random()-0.5)*shakeMag;
-    camera.position.y += (Math.random()-0.5)*shakeMag*0.6;
-    camera.rotation.z = (Math.random()-0.5)*shakeMag*0.05;
+export function addShake(m) {
+  if (!reduceMotion) shakeMag = Math.min(shakeMag + m, 1.4);
+}
+export function applyShake(dt) {
+  if (shakeMag > 0.001) {
+    camera.position.x += (Math.random() - 0.5) * shakeMag;
+    camera.position.y += (Math.random() - 0.5) * shakeMag * 0.6;
+    camera.rotation.z = (Math.random() - 0.5) * shakeMag * 0.05;
     shakeMag *= Math.pow(0.002, dt);
   } else {
     shakeMag = 0;
